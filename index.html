@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Free Invoice Generator — Create & Download a PDF Invoice Online | ledgernote</title>
+<meta name="description" content="Make a professional invoice in your browser and download it as a PDF — free, no sign-up, no software to install. Add your logo, set your currency and tax rate, and send it in under a minute.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://www.ledgernote.example/">
+<meta name="theme-color" content="#EDF1E9">
+<meta name="google-site-verification" content="Ye4izsucC-1naJfl9HECDaJN9FuWlYDtJNpNKw13xMI" />
+
+<!-- Open Graph / social preview -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ledgernote">
+<meta property="og:title" content="Free Invoice Generator — Create & Download a PDF Invoice Online">
+<meta property="og:description" content="Make a professional invoice in your browser and download it as a PDF — free, no sign-up, no software to install.">
+<meta property="og:url" content="https://www.ledgernote.example/">
+<meta property="og:image" content="https://www.ledgernote.example/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Free Invoice Generator — Create & Download a PDF Invoice Online">
+<meta name="twitter:description" content="Make a professional invoice in your browser and download it as a PDF — free, no sign-up, no software to install.">
+<meta name="twitter:image" content="https://www.ledgernote.example/og-image.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
+ <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-P0F00Y5VTW"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-P0F00Y5VTW');
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "ledgernote Invoice Generator",
+  "url": "https://www.ledgernote.example/",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Any (runs in browser)",
+  "description": "A free browser-based tool for creating and downloading professional PDF invoices, with support for logos, multiple currencies, tax rates, and custom accent colors.",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is this invoice generator really free?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. There's no sign-up, no watermark, and no limit on how many invoices you create or download." }
+    },
+    {
+      "@type": "Question",
+      "name": "Where is my invoice data stored?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Everything runs in your browser. Your invoice details are never sent to a server — they're only kept in your browser's local storage on your own device so you don't lose a draft." }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I add my own logo and brand colors?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. You can upload a logo and choose from several accent colors to match your brand before downloading the PDF." }
+    },
+    {
+      "@type": "Question",
+      "name": "What file format do I get?",
+      "acceptedAnswer": { "@type": "Answer", "text": "A ready-to-send PDF, generated directly in your browser when you click Download." }
+    },
+    {
+      "@type": "Question",
+      "name": "Does it support different currencies and tax rates?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. You can pick from several major currencies and add a custom tax rate that's calculated automatically." }
+    }
+  ]
+}
+</script>
+<style>
+  :root{
+    --paper:#EDF1E9; --paper-white:#FBFBF7; --ink:#1E2A38; --ink-soft:#57666B;
+    --forest:#2F5D50; --forest-dark:#1F4038; --brass:#A9793B; --brass-dark:#7C5B27;
+    --rule:#C7D0C2; --rule-soft:#DCE3D7; --alert:#A6402F; --radius:3px;
+    --focus: 0 0 0 2px var(--paper), 0 0 0 4px var(--forest);
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'IBM Plex Sans', sans-serif; font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;}
+  h1,h2,h3{font-family:'Source Serif 4', serif; font-weight:600; margin:0;}
+  a{color:var(--forest-dark);}
+  button{font-family:inherit;}
+  :focus-visible{outline:none; box-shadow:var(--focus); border-radius:var(--radius);}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;} }
+
+  /* ---- sticky top nav ---- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 28px; border-bottom:1px solid var(--rule);
+    position:sticky; top:0; background:var(--paper); z-index:60;
+  }
+  .mark{font-family:'Source Serif 4', serif; font-size:19px; font-weight:600; display:flex; align-items:baseline; gap:2px;}
+  .mark span{color:var(--forest);}
+  .mark small{font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--ink-soft); font-weight:400; letter-spacing:0.02em; margin-left:8px;}
+  nav a{color:var(--ink-soft); font-size:13.5px; text-decoration:none; margin-left:20px;}
+  nav a:hover{color:var(--forest-dark);}
+
+  /* ---- mobile view switcher ---- */
+  .view-switch{display:none;}
+  @media (max-width:880px){
+    .view-switch{
+      display:flex; position:sticky; top:49px; z-index:55; background:var(--paper-white);
+      border-bottom:1px solid var(--rule);
+    }
+    .view-switch button{
+      flex:1; border:none; background:none; padding:12px 10px; font-size:13.5px; color:var(--ink-soft);
+      border-bottom:2px solid transparent; cursor:pointer;
+    }
+    .view-switch button.active{color:var(--ink); border-bottom-color:var(--brass); font-weight:500;}
+  }
+
+  section{max-width:1280px; margin:0 auto;}
+  .section-inner{max-width:700px; margin:0 auto; padding:56px 28px;}
+  .section-divider{border-top:1px solid var(--rule);}
+
+  /* ================= TOOL ================= */
+  .tool-hero{max-width:640px; margin:0 auto; padding:40px 28px 8px; text-align:left;}
+  .tool-hero h1{font-size:26px; line-height:1.2;}
+  .tool-hero p{margin:10px 0 0; color:var(--ink-soft); font-size:14.5px; max-width:56ch;}
+  #tool .tool-layout{
+    max-width:1280px; margin:0 auto; display:grid;
+    grid-template-columns:minmax(320px, 420px) 1fr; gap:0; align-items:start;
+  }
+  .form-pane{padding:26px 28px 90px; border-right:1px solid var(--rule); min-width:0; position:relative;}
+  .field-group{margin-bottom:26px; padding-bottom:22px; border-bottom:1px solid var(--rule-soft);}
+  .field-group:last-of-type{border-bottom:none;}
+  .field-group-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px;}
+  .field-group h3{font-size:15px;}
+  .link-btn{background:none; border:none; padding:0; font-size:12px; color:var(--forest-dark); cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+  .link-btn:hover{color:var(--alert);}
+  label{display:block; font-size:12.5px; color:var(--ink-soft); margin-bottom:4px; margin-top:12px;}
+  label:first-child{margin-top:0;}
+  input[type=text], input[type=number], input[type=date], input[type=email], input[type=password], textarea{
+    width:100%; padding:8px 9px; font-family:'IBM Plex Sans', sans-serif; font-size:14px;
+    color:var(--ink); background:var(--paper-white); border:1px solid var(--rule); border-radius:var(--radius); outline:none;
+  }
+  input:focus, textarea:focus{border-color:var(--forest); box-shadow:0 0 0 1px var(--forest);}
+  textarea{resize:vertical; min-height:56px; font-family:inherit;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  select{width:100%; padding:8px 9px; font-family:'IBM Plex Sans', sans-serif; font-size:14px; background:var(--paper-white); border:1px solid var(--rule); border-radius:var(--radius); color:var(--ink);}
+
+  /* logo dropzone */
+  .logo-zone{
+    display:flex; align-items:center; gap:12px; margin-top:6px; padding:10px; border:1.5px dashed var(--rule);
+    border-radius:var(--radius); background:var(--paper-white); transition:border-color .15s, background .15s;
+  }
+  .logo-zone.drag-over{border-color:var(--forest); background:#F1F6F1;}
+  .logo-zone .logo-thumb{width:42px; height:42px; border:1px solid var(--rule); border-radius:var(--radius); object-fit:contain; background:#fff; display:none; flex:none;}
+  .logo-zone .logo-copy{font-size:12px; color:var(--ink-soft); flex:1;}
+  .logo-zone .logo-copy strong{display:block; color:var(--ink); font-size:12.5px; font-weight:500;}
+  .logo-zone input[type=file]{display:none;}
+  .logo-zone .logo-pick{font-size:12px; color:var(--forest-dark); background:none; border:1px solid var(--rule); padding:6px 10px; border-radius:var(--radius); cursor:pointer; white-space:nowrap;}
+  .logo-zone .logo-pick:hover{border-color:var(--forest);}
+  .logo-zone .logo-remove{display:none; background:none; border:none; color:var(--ink-soft); font-size:18px; cursor:pointer; padding:2px 4px; line-height:1;}
+  .logo-zone .logo-remove:hover{color:var(--alert);}
+
+  /* accent swatches */
+  .swatches{display:flex; gap:8px; margin-top:8px;}
+  .swatch{width:24px; height:24px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0; position:relative;}
+  .swatch.active{border-color:var(--ink);}
+  .swatch.active::after{content:''; position:absolute; inset:-4px; border:1px solid var(--rule);}
+
+  .items-head{display:grid; grid-template-columns:1fr 40px 58px 62px 22px; gap:6px; font-size:11px; color:var(--ink-soft); padding:0 0 6px;}
+  .items-head span:not(:first-child){text-align:right;}
+  .item-row{display:grid; grid-template-columns:1fr 40px 58px 62px 22px; gap:6px; align-items:center; margin-bottom:8px;}
+  .item-row input{padding:7px 7px; font-size:13px;}
+  .item-row .amt-readout{font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--ink-soft); text-align:right; padding-right:2px;}
+  .remove-item{background:none; border:none; color:var(--ink-soft); font-size:16px; cursor:pointer; line-height:1; padding:4px;}
+  .remove-item:hover{color:var(--alert);}
+  .add-item{margin-top:6px; background:none; border:1px dashed var(--rule); color:var(--forest-dark); font-size:13px; padding:8px; width:100%; border-radius:var(--radius); cursor:pointer; font-family:'IBM Plex Sans', sans-serif;}
+  .add-item:hover{border-color:var(--forest); background:var(--paper-white);}
+  .item-hint{font-size:11px; color:var(--ink-soft); margin-top:6px;}
+
+  .autosave-pill{
+    position:absolute; left:28px; bottom:20px; font-size:11.5px; color:var(--ink-soft);
+    display:flex; align-items:center; gap:6px; opacity:0; transition:opacity .3s;
+  }
+  .autosave-pill.show{opacity:1;}
+  .autosave-pill .dot{width:6px; height:6px; border-radius:50%; background:var(--forest); flex:none;}
+
+  .preview-pane{padding:26px 40px 60px; min-width:0;}
+  .preview-toolbar{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:18px; max-width:760px; margin-left:auto; margin-right:auto;}
+  .missing-hint{font-size:12px; color:var(--ink-soft);}
+  .missing-hint strong{color:var(--alert); font-weight:500;}
+  button.download{background:var(--forest); color:var(--paper-white); border:none; padding:11px 20px; font-size:14px; font-weight:500; border-radius:var(--radius); cursor:pointer; font-family:'IBM Plex Sans', sans-serif; white-space:nowrap; display:flex; align-items:center; gap:8px;}
+  button.download:hover{background:var(--forest-dark);}
+  button.download:disabled{opacity:0.7; cursor:wait;}
+  button.download .spin{width:13px; height:13px; border:2px solid rgba(255,255,255,0.4); border-top-color:#fff; border-radius:50%; display:none; animation:spin .7s linear infinite;}
+  button.download.loading .spin{display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  #invoice-sheet{max-width:760px; margin:0 auto; background:var(--paper-white); box-shadow:0 1px 3px rgba(30,42,56,0.08), 0 8px 24px rgba(30,42,56,0.08); padding:52px 56px; --acc:var(--forest); --acc-dark:var(--forest-dark);}
+  .sheet-head{display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:26px; border-bottom:2px solid var(--ink); margin-bottom:26px;}
+  .sheet-head .from-block{max-width:60%;}
+  #prev-logo{max-height:46px; max-width:180px; display:none; margin-bottom:10px;}
+  .sheet-head .biz-name{font-family:'Source Serif 4', serif; font-size:19px; font-weight:600;}
+  .sheet-head .biz-meta{font-size:12.5px; color:var(--ink-soft); white-space:pre-line; margin-top:4px;}
+  .sheet-head .invoice-tag{text-align:right;}
+  .sheet-head .invoice-tag .label{font-family:'Source Serif 4', serif; font-size:22px; font-weight:700; color:var(--acc-dark);}
+  .sheet-head .invoice-tag .num{font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--ink-soft); margin-top:4px;}
+  .meta-row{display:flex; justify-content:space-between; margin-bottom:30px; gap:24px;}
+  .meta-col .h{font-size:11.5px; color:var(--ink-soft); margin-bottom:5px;}
+  .meta-col .v{font-size:13.5px; white-space:pre-line;}
+  .meta-col.dates .v{font-family:'IBM Plex Mono', monospace;}
+  table.items{width:100%; border-collapse:collapse; margin-bottom:22px;}
+  table.items thead th{text-align:left; font-size:11.5px; color:var(--ink-soft); font-weight:500; padding:0 6px 8px; border-bottom:1px solid var(--ink);}
+  table.items thead th.num{text-align:right;}
+  table.items tbody td{padding:9px 6px; font-size:13.5px; border-bottom:1px solid var(--rule-soft); vertical-align:top;}
+  table.items tbody td.num{text-align:right; font-family:'IBM Plex Mono', monospace; white-space:nowrap;}
+  .totals{margin-left:auto; width:260px; margin-bottom:30px;}
+  .totals .line{display:flex; justify-content:space-between; font-size:13.5px; padding:6px 0;}
+  .totals .line.grand{border-top:2px solid var(--ink); margin-top:4px; padding-top:10px; font-weight:600; font-size:16px; color:var(--acc-dark);}
+  .totals .line .amt{font-family:'IBM Plex Mono', monospace;}
+  .notes-block{border-top:1px solid var(--rule-soft); padding-top:18px;}
+  .notes-block .h{font-size:11.5px; color:var(--ink-soft); margin-bottom:6px;}
+  .notes-block .v{font-size:13px; color:var(--ink-soft); white-space:pre-line;}
+
+  button.mobile-download{display:none;}
+  @media (max-width: 880px){
+    #tool .tool-layout{grid-template-columns:1fr;}
+    .form-pane{border-right:none;}
+    .preview-pane{padding:20px 16px 90px;}
+    #invoice-sheet{padding:30px 24px;}
+    .sheet-head{flex-direction:column; gap:14px;}
+    .sheet-head .invoice-tag{text-align:left;}
+    .meta-row{flex-direction:column; gap:14px;}
+    .preview-toolbar{flex-direction:column; align-items:stretch; gap:8px;}
+    .preview-toolbar button.download{display:none;}
+    #tool.mode-preview .form-pane{display:none;}
+    #tool.mode-edit .preview-pane{display:none;}
+    button.mobile-download{
+      display:flex; position:fixed; right:16px; bottom:16px; z-index:70;
+      box-shadow:0 4px 14px rgba(30,42,56,0.25); border-radius:999px; padding:13px 20px;
+    }
+    .autosave-pill{left:16px; bottom:10px;}
+  }
+
+  /* ---- toast ---- */
+  .toast{
+    position:fixed; left:50%; bottom:28px; transform:translate(-50%, 12px); background:var(--ink); color:var(--paper-white);
+    padding:10px 18px; border-radius:var(--radius); font-size:13px; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:200;
+  }
+  .toast.show{opacity:1; transform:translate(-50%, 0);}
+
+  /* ================= ARTICLES ================= */
+  .kicker{font-size:13px; color:var(--ink-soft); margin-bottom:10px;}
+  article .article-title{font-size:28px; margin:0 0 20px; line-height:1.25; font-family:'Source Serif 4', serif; font-weight:600;}
+  article h2{font-size:18px; margin:32px 0 12px;}
+  article p{margin:0 0 16px;}
+  article ul, article ol{margin:0 0 16px; padding-left:22px;}
+  article li{margin-bottom:8px;}
+  .callout{background:var(--paper-white); border-left:3px solid var(--forest); padding:16px 20px; margin:26px 0; font-size:14.5px;}
+  .callout a{font-weight:500;}
+  .disclosure{font-size:12.5px; color:var(--ink-soft); border-top:1px solid var(--rule-soft); padding-top:14px; margin-top:34px;}
+  .checklist{list-style:none; padding:0; margin:20px 0 30px;}
+  .checklist li{padding:10px 0 10px 30px; border-bottom:1px solid var(--rule-soft); position:relative; margin-bottom:0;}
+  .checklist li::before{content:''; position:absolute; left:0; top:14px; width:14px; height:14px; border:1.5px solid var(--forest); border-radius:2px;}
+  .checklist li strong{display:block; font-size:15px; margin-bottom:2px;}
+  .checklist li span{color:var(--ink-soft); font-size:13.5px;}
+
+  .faq-list{margin-top:8px;}
+  .faq-item{padding:18px 0; border-bottom:1px solid var(--rule-soft);}
+  .faq-item:last-child{border-bottom:none;}
+  .faq-item h3{font-size:15.5px; margin-bottom:6px;}
+  .faq-item p{margin:0; color:var(--ink-soft); font-size:14px;}
+
+  /* ================= LEGAL ================= */
+  .legal .legal-title{font-size:26px; margin:0 0 6px; font-family:'Source Serif 4', serif; font-weight:600;}
+  .legal .updated{font-size:13px; color:var(--ink-soft); margin-bottom:30px;}
+  .legal h2{font-size:16px; margin:28px 0 10px;}
+  .legal p{margin:0 0 14px;}
+  .legal ul{margin:0 0 14px; padding-left:20px;}
+  .legal li{margin-bottom:6px;}
+
+  footer{max-width:1280px; margin:0 auto; padding:24px 28px 50px; font-size:12.5px; color:var(--ink-soft); display:flex; justify-content:space-between; border-top:1px solid var(--rule);}
+  footer a{color:var(--ink-soft); margin-left:14px;}
+
+  /* ================= AUTH / PRO ================= */
+  .auth-area{margin-left:20px; display:inline-flex; align-items:center; gap:10px;}
+  .auth-btn{background:none; border:1px solid var(--rule); color:var(--ink); font-size:12.5px; padding:6px 12px; border-radius:var(--radius); cursor:pointer;}
+  .auth-btn:hover{border-color:var(--forest);}
+  .auth-user{font-size:12.5px; color:var(--ink-soft); display:inline-flex; align-items:center; gap:8px;}
+  .pro-badge{background:var(--brass); color:var(--paper-white); font-size:9.5px; font-weight:600; letter-spacing:0.04em; padding:2px 6px; border-radius:2px; vertical-align:middle; margin-right:6px;}
+
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(30,42,56,0.45); z-index:150;
+    align-items:center; justify-content:center; padding:20px;
+  }
+  .modal-overlay.show{display:flex;}
+  .modal{background:var(--paper-white); border-radius:4px; padding:28px 26px; width:100%; max-width:360px; position:relative; box-shadow:0 12px 40px rgba(30,42,56,0.25);}
+  .modal-wide{max-width:520px;}
+  .modal h3{font-size:19px; margin-bottom:6px;}
+  .modal-sub{font-size:13px; color:var(--ink-soft); margin:0 0 16px;}
+  .modal-close{position:absolute; top:14px; right:14px; background:none; border:none; font-size:20px; color:var(--ink-soft); cursor:pointer; line-height:1;}
+  .modal-close:hover{color:var(--alert);}
+  .modal-primary{width:100%; margin-top:18px; background:var(--forest); color:var(--paper-white); border:none; padding:11px; font-size:14px; font-weight:500; border-radius:var(--radius); cursor:pointer;}
+  .modal-primary:hover{background:var(--forest-dark);}
+  .modal-primary:disabled{opacity:0.6; cursor:wait;}
+  .modal-toggle{font-size:12.5px; color:var(--ink-soft); margin:14px 0 0; text-align:center;}
+  .auth-error{background:#FBEAE7; color:var(--alert); font-size:12.5px; padding:8px 10px; border-radius:var(--radius); margin-bottom:6px; display:none;}
+  .auth-error.show{display:block;}
+
+  .pro-banner{background:var(--paper-white); border:1px solid var(--rule); border-radius:4px; padding:18px; margin-bottom:26px;}
+  .pro-banner h3{font-size:15px; margin-bottom:6px;}
+  .pro-banner p{font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;}
+  .pro-plans{display:flex; gap:8px;}
+  .pro-plan-btn{flex:1; background:var(--forest); color:var(--paper-white); border:none; padding:9px; font-size:13px; border-radius:var(--radius); cursor:pointer;}
+  .pro-plan-btn:last-child{background:none; color:var(--forest-dark); border:1px solid var(--forest);}
+  .pro-plan-btn:hover{opacity:0.88;}
+
+  .pro-toolbar{background:#F1F6F1; border:1px solid var(--rule); border-radius:4px; padding:16px 16px 18px; margin-bottom:26px;}
+  .recurring-check{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink); margin-top:14px; cursor:pointer;}
+  .recurring-check input{margin:0; width:auto;}
+  .save-invoice-btn{width:100%; margin-top:14px; background:var(--brass); color:var(--paper-white); border:none; padding:10px; font-size:13.5px; font-weight:500; border-radius:var(--radius); cursor:pointer;}
+  .save-invoice-btn:hover{background:var(--brass-dark);}
+
+  .history-list{max-height:60vh; overflow-y:auto; margin-top:6px;}
+  .history-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 4px; border-bottom:1px solid var(--rule-soft); cursor:pointer;}
+  .history-row:hover{background:var(--paper);}
+  .history-row .hr-main{min-width:0;}
+  .history-row .hr-num{font-size:13.5px; font-weight:500;}
+  .history-row .hr-sub{font-size:12px; color:var(--ink-soft);}
+  .history-status{font-size:10.5px; font-weight:600; letter-spacing:0.03em; text-transform:uppercase; padding:3px 8px; border-radius:20px; white-space:nowrap; flex:none;}
+  .history-status.draft{background:var(--rule-soft); color:var(--ink-soft);}
+  .history-status.sent{background:#E4ECF5; color:#2C3E63;}
+  .history-status.paid{background:#E3EFE9; color:var(--forest-dark);}
+  .history-status.overdue{background:#FBEAE7; color:var(--alert);}
+  .history-empty{font-size:13px; color:var(--ink-soft); padding:20px 4px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="mark">ledger<span>note</span><small>invoice generator</small></div>
+  <nav>
+    <a href="#tool">Invoice tool</a>
+    <a href="#guide-invoicing">Guides</a>
+    <a href="#faq">FAQ</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#terms">Terms</a>
+    <span class="auth-area" id="authArea">
+      <button type="button" class="auth-btn" id="loginBtn">Log in</button>
+    </span>
+  </nav>
+</div>
+
+<!-- ---- auth modal ---- -->
+<div class="modal-overlay" id="authOverlay">
+  <div class="modal" id="authModal">
+    <button type="button" class="modal-close" id="authCloseBtn" aria-label="Close">×</button>
+    <h3 id="authTitle">Log in</h3>
+    <p class="modal-sub" id="authSub">Access your saved clients, invoice history, and Pro features.</p>
+    <div id="authError" class="auth-error" role="alert"></div>
+    <label for="authEmail">Email</label>
+    <input type="email" id="authEmail" autocomplete="email">
+    <label for="authPassword">Password</label>
+    <input type="password" id="authPassword" autocomplete="current-password">
+    <button type="button" class="modal-primary" id="authSubmitBtn">Log in</button>
+    <p class="modal-toggle">
+      <span id="authToggleCopy">Don't have an account?</span>
+      <button type="button" class="link-btn" id="authToggleBtn">Sign up</button>
+    </p>
+  </div>
+</div>
+
+<!-- ---- invoice history modal (Pro) ---- -->
+<div class="modal-overlay" id="historyOverlay">
+  <div class="modal modal-wide" id="historyModal">
+    <button type="button" class="modal-close" id="historyCloseBtn" aria-label="Close">×</button>
+    <h3>Invoice history</h3>
+    <p class="modal-sub">Click an invoice to load it back into the editor.</p>
+    <div id="historyList" class="history-list"></div>
+  </div>
+</div>
+
+<div class="view-switch" id="viewSwitch">
+  <button type="button" data-mode="edit" class="active">Edit details</button>
+  <button type="button" data-mode="preview">Preview invoice</button>
+</div>
+
+<!-- ================= TOOL ================= -->
+<section id="tool" class="mode-edit">
+  <div class="tool-hero">
+    <h1>Free invoice generator</h1>
+    <p>Fill in your details on the left and watch a professional invoice build itself on the right. Download it as a PDF when it's ready — no account, no watermark, nothing installed.</p>
+  </div>
+  <div class="tool-layout">
+    <div class="form-pane">
+
+      <!-- Upgrade banner: shown to logged-in users who aren't Pro yet -->
+      <div class="field-group pro-banner" id="upgradeBanner" style="display:none;">
+        <h3>Go Pro</h3>
+        <p>Save clients, keep invoice history, and track paid/overdue status — synced across your devices.</p>
+        <div class="pro-plans">
+          <button type="button" class="pro-plan-btn" id="upgradeMonthlyBtn">Monthly</button>
+          <button type="button" class="pro-plan-btn" id="upgradeLifetimeBtn">Lifetime</button>
+        </div>
+      </div>
+
+      <!-- Pro toolbar: shown once a Pro user is logged in -->
+      <div class="field-group pro-toolbar" id="proToolbar" style="display:none;">
+        <div class="field-group-head">
+          <h3><span class="pro-badge">PRO</span> This invoice</h3>
+          <button type="button" class="link-btn" id="openHistoryBtn">Invoice history</button>
+        </div>
+        <div class="row2">
+          <div>
+            <label for="invStatus">Status</label>
+            <select id="invStatus">
+              <option value="draft">Draft</option>
+              <option value="sent">Sent</option>
+              <option value="paid">Paid</option>
+              <option value="overdue">Overdue</option>
+            </select>
+          </div>
+          <div>
+            <label for="clientPicker">Saved client</label>
+            <select id="clientPicker">
+              <option value="">— New client —</option>
+            </select>
+          </div>
+        </div>
+        <label class="recurring-check"><input type="checkbox" id="isRecurring"> Repeat this invoice</label>
+        <select id="recurrenceInterval" style="display:none; margin-top:8px;">
+          <option value="monthly">Monthly</option>
+          <option value="weekly">Weekly</option>
+        </select>
+        <button type="button" class="save-invoice-btn" id="saveInvoiceBtn">Save invoice</button>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-head"><h3>Your business</h3></div>
+        <div class="logo-zone" id="logoZone">
+          <img id="logoThumb" class="logo-thumb" alt="">
+          <div class="logo-copy" id="logoCopy"><strong>Add a logo</strong>Drop an image here, or</div>
+          <button type="button" class="logo-pick" id="logoPickBtn">Choose file</button>
+          <button type="button" class="logo-remove" id="logoRemoveBtn" title="Remove logo">×</button>
+          <input type="file" id="logoInput" accept="image/*">
+        </div>
+        <label for="bizName">Business or your name</label>
+        <input type="text" id="bizName" placeholder="Alex Rivera Design">
+        <label for="bizDetails">Address, email, phone (one per line)</label>
+        <textarea id="bizDetails" placeholder="123 Maple St, Austin TX&#10;alex@rivera.design&#10;(512) 555-0114"></textarea>
+      </div>
+
+      <div class="field-group">
+        <h3>Bill to</h3>
+        <label for="clientName">Client name</label>
+        <input type="text" id="clientName" placeholder="Northwind Traders">
+        <label for="clientDetails">Client address / email (one per line)</label>
+        <textarea id="clientDetails" placeholder="400 Commerce Ave&#10;billing@northwind.com"></textarea>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-head"><h3>Invoice details</h3><button type="button" class="link-btn" id="resetBtn">Start new invoice</button></div>
+        <div class="row2">
+          <div><label for="invNum">Invoice number</label><input type="text" id="invNum" value="INV-0001"></div>
+          <div><label for="currency">Currency</label>
+            <select id="currency">
+              <option value="$">USD ($)</option>
+              <option value="€">EUR (€)</option>
+              <option value="£">GBP (£)</option>
+              <option value="₹">INR (₹)</option>
+              <option value="C$">CAD (C$)</option>
+              <option value="A$">AUD (A$)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2">
+          <div><label for="issueDate">Issue date</label><input type="date" id="issueDate"></div>
+          <div><label for="dueDate">Due date</label><input type="date" id="dueDate"></div>
+        </div>
+        <label>Accent color</label>
+        <div class="swatches" id="swatches"></div>
+      </div>
+
+      <div class="field-group">
+        <h3>Line items</h3>
+        <div class="items-head"><span>Description</span><span>Qty</span><span>Rate</span><span>Amount</span><span></span></div>
+        <div id="itemsList"></div>
+        <button type="button" class="add-item" id="addItemBtn">+ Add line item</button>
+        <div class="item-hint">Tip: press Enter in the last rate field to add a new line.</div>
+        <label for="taxRate" style="margin-top:18px;">Tax rate (%, optional)</label>
+        <input type="number" id="taxRate" min="0" step="0.1" value="0" style="max-width:110px;">
+      </div>
+
+      <div class="field-group">
+        <h3>Notes</h3>
+        <label for="notes">Payment terms, thank-you note, etc.</label>
+        <textarea id="notes" placeholder="Payment due within 14 days. Thanks for your business!"></textarea>
+      </div>
+
+      <div class="autosave-pill" id="autosavePill"><span class="dot"></span><span id="autosaveText">Draft saved</span></div>
+    </div>
+
+    <div class="preview-pane">
+      <div class="preview-toolbar">
+        <span class="missing-hint" id="missingHint"></span>
+        <button class="download" id="downloadBtn"><span class="spin"></span><span class="label">Download PDF</span></button>
+      </div>
+      <div id="invoice-sheet">
+        <div class="sheet-head">
+          <div class="from-block">
+            <img id="prev-logo" alt="">
+            <div class="biz-name" id="prevBizName">Your business name</div>
+            <div class="biz-meta" id="prevBizDetails">Address · email · phone</div>
+          </div>
+          <div class="invoice-tag">
+            <div class="label">Invoice</div>
+            <div class="num" id="prevInvNum">INV-0001</div>
+          </div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-col">
+            <div class="h">Billed to</div>
+            <div class="v" id="prevClientName">Client name</div>
+            <div class="v" id="prevClientDetails" style="color:var(--ink-soft); font-size:12.5px; margin-top:2px;"></div>
+          </div>
+          <div class="meta-col dates"><div class="h">Issued</div><div class="v" id="prevIssueDate">—</div></div>
+          <div class="meta-col dates"><div class="h">Due</div><div class="v" id="prevDueDate">—</div></div>
+        </div>
+        <table class="items">
+          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+          <tbody id="prevItemsBody"></tbody>
+        </table>
+        <div class="totals">
+          <div class="line"><span>Subtotal</span><span class="amt" id="prevSubtotal">$0.00</span></div>
+          <div class="line" id="taxLine" style="display:none;"><span id="taxLabel">Tax</span><span class="amt" id="prevTax">$0.00</span></div>
+          <div class="line grand"><span>Total due</span><span class="amt" id="prevTotal">$0.00</span></div>
+        </div>
+        <div class="notes-block" id="notesBlock" style="display:none;">
+          <div class="h">Notes</div>
+          <div class="v" id="prevNotes"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<button type="button" class="download mobile-download" id="downloadBtnMobile"><span class="spin"></span><span class="label">Download PDF</span></button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ================= GUIDE 1 ================= -->
+<section id="guide-invoicing" class="section-divider">
+  <article class="section-inner">
+    <div class="kicker">Guides / Freelancing</div>
+    <h2 class="article-title">How to Invoice as a Freelancer</h2>
+    <p>Most late payments aren't clients being difficult — they're invoices that were unclear, sent late, or easy to lose in an inbox. Fixing your invoicing process fixes a surprising amount of your cash flow problem before it starts.</p>
+
+    <h2>Invoice before the client forgets what you did</h2>
+    <p>Send the invoice within a day or two of finishing the work, while it's still fresh and clearly tied to a deliverable the client just received. Waiting a few weeks makes the invoice feel disconnected from the work, and disconnected invoices get questioned or deprioritized.</p>
+
+    <h2>Put the due date in the client's terms, not just yours</h2>
+    <p>"Net 30" means something to an accounts payable department; "please pay soon" doesn't. Give a specific due date (an actual calendar date, not just "30 days") and, if you accept late fees, state the rate up front rather than adding it as a surprise later.</p>
+
+    <h2>Make the invoice number and total impossible to miss</h2>
+    <p>Whoever processes payment on the client's end is often not the person you worked with — it might be a bookkeeper or an AP system. Put your invoice number, total due, and due date somewhere they'll see in the first five seconds, since that's what gets keyed into their system.</p>
+
+    <div class="callout">Want to skip straight to a clean invoice? <a href="#tool">Use the free invoice generator above</a> — fill in your details and download a PDF in under a minute.</div>
+
+    <h2>Say exactly how you want to be paid</h2>
+    <p>List your accepted payment methods directly on the invoice (bank transfer details, PayPal, a payment link) rather than making the client ask. Every extra step between "I want to pay you" and actually paying is a chance for the invoice to sit untouched for another week.</p>
+
+    <h2>Follow up before the due date, not after</h2>
+    <p>A short reminder two or three days before the due date reads as organized, not pushy. Waiting until an invoice is already overdue puts you in the position of chasing money, which is a worse conversation for everyone.</p>
+
+    <h2>Keep a simple system, even if it's not fancy software</h2>
+    <p>For your first several clients, a consistent invoice template and a spreadsheet tracking what's owed and what's paid is enough. Once you're issuing more than a handful of invoices a month, dedicated invoicing or accounting software starts to earn its cost by handling reminders and payment tracking automatically — tools like Wave or FreshBooks are common starting points for freelancers moving past spreadsheets.</p>
+
+    <p>The common thread across all of this: an invoice that's clear, specific, and sent promptly gets paid faster than one that's polite but vague. Templates help with the first part — the habit of sending on time is on you.</p>
+
+    <div class="disclosure">Some links on this page may be affiliate links, meaning we may earn a commission if you sign up through them, at no extra cost to you.</div>
+  </article>
+</section>
+
+<!-- ================= GUIDE 2 ================= -->
+<section id="guide-checklist" class="section-divider">
+  <article class="section-inner">
+    <div class="kicker">Guides / Invoicing basics</div>
+    <h2 class="article-title">What to Include on an Invoice (Checklist)</h2>
+    <p>An invoice only does its job if the person paying it can process it without emailing you a question first. Here's what to include, and why each part earns its place.</p>
+
+    <ul class="checklist">
+      <li><strong>Invoice number</strong><span>A unique reference so both sides can track it — sequential (INV-0001, INV-0002) is simplest.</span></li>
+      <li><strong>Issue date and due date</strong><span>A specific due date, not just "Net 30" with no anchor date.</span></li>
+      <li><strong>Your business details</strong><span>Name, address, email, and phone — enough for the client's records and for you to be identifiable if this goes to a tax authority.</span></li>
+      <li><strong>Client's details</strong><span>Who's being billed, and the entity name if they're a registered business.</span></li>
+      <li><strong>Itemized line items</strong><span>Each service or product, quantity, rate, and line total — not just one lump sum, which invites "what exactly was this for?" replies.</span></li>
+      <li><strong>Subtotal, tax, and total</strong><span>Shown as separate lines so the math is checkable at a glance.</span></li>
+      <li><strong>Payment methods</strong><span>Bank details, PayPal, or a payment link — stated directly, not left for the client to ask about.</span></li>
+      <li><strong>Payment terms or late fee policy</strong><span>If you charge a late fee, say so on the invoice itself, not after the due date has passed.</span></li>
+    </ul>
+
+    <h2>Optional, but worth adding</h2>
+    <p>A short thank-you note or one-line reminder of the project name can make an invoice feel less like a form letter, especially for repeat clients. If you're VAT-registered or operate somewhere with a required tax ID, include that number — some clients' finance departments won't process a payment without it.</p>
+
+    <div class="callout">All of these fields are already built into the <a href="#tool">free invoice generator above</a> — fill in the form and they're laid out for you automatically.</div>
+
+    <h2>What to leave off</h2>
+    <p>Skip anything that isn't directly about the transaction — a long company bio, unrelated marketing, or multiple unrelated projects bundled into one invoice. If two projects have different timelines or approval chains, separate invoices get paid faster than one invoice waiting on two approvals.</p>
+
+    <p>Once this structure is consistent across every invoice you send, clients (and their accounting software) start to recognize the pattern, which is part of what makes invoices get paid without a chase email.</p>
+
+    <div class="disclosure">Some links on this page may be affiliate links, meaning we may earn a commission if you sign up through them, at no extra cost to you.</div>
+  </article>
+</section>
+
+<!-- ================= PRIVACY ================= -->
+<section id="privacy" class="section-divider">
+  <div class="section-inner legal">
+    <h2 class="legal-title">Privacy Policy</h2>
+    <div class="updated">Last updated: [add date when you publish]</div>
+    <p>ledgernote ("we," "this site") provides a free, browser-based invoice generator, with an optional paid Pro tier that saves invoices to your account. This policy explains what happens to your information when you use it.</p>
+
+    <h2>The free invoice tool</h2>
+    <p>Used without an account, the invoice generator runs entirely in your browser. The business details, client details, and line items you type in are used only to render your preview and your downloaded PDF. To save you from losing a draft on an accidental refresh, your entries are kept in your browser's local storage on this device only — clearing your browser data or tapping "Start new invoice" removes it.</p>
+
+    <h2>Pro accounts</h2>
+    <p>If you create an account, your business profile, saved clients, and invoice history are stored with our database provider (Supabase) so they're available across devices. Payment for Pro is processed by Paystack — we don't see or store your card details.</p>
+
+    <h2>Analytics</h2>
+    <p>We may use a privacy-conscious analytics tool (or Google Analytics) to understand how many people visit the site and which pages are useful, so we can improve it. This tells us aggregate traffic patterns, not who you are.</p>
+
+    <h2>Advertising</h2>
+    <p>This site may show ads served by Google AdSense or a similar network. These networks may use cookies or similar technology to show relevant ads. You can control ad personalization through <a href="https://adssettings.google.com" target="_blank" rel="noopener">Google's Ads Settings</a>, and most browsers let you block third-party cookies entirely.</p>
+
+    <h2>Affiliate links</h2>
+    <p>Some guides on this site contain affiliate links to tools we mention (for example, accounting or invoicing software). If you click one and sign up, we may earn a commission at no extra cost to you. We only link to tools we think are genuinely useful for the topic at hand.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy can be sent to [add your contact email].</p>
+  </div>
+</section>
+
+<!-- ================= TERMS ================= -->
+<section id="terms" class="section-divider">
+  <div class="section-inner legal">
+    <h2 class="legal-title">Terms of Use</h2>
+    <div class="updated">Last updated: [add date when you publish]</div>
+    <p>By using ledgernote (the invoice generator, its Pro tier, and its guides), you agree to the following terms.</p>
+
+    <h2>What this tool is</h2>
+    <p>ledgernote is a tool that helps you format, save, and download invoices as PDFs. The free tier runs entirely in your browser. The optional Pro tier stores your business profile, clients, and invoice history in your account so you can pick up where you left off, and is billed via Paystack.</p>
+
+    <h2>Your responsibility</h2>
+    <ul>
+      <li>You're responsible for the accuracy of the information you put into your invoices — amounts, tax rates, and legal business details.</li>
+      <li>Tax and invoicing requirements vary by country and region. This tool doesn't provide legal, tax, or accounting advice, and the guides on this site are for general information only.</li>
+      <li>You should not use this tool to create misleading, fraudulent, or fake invoices.</li>
+    </ul>
+
+    <h2>Billing</h2>
+    <p>Pro is billed monthly or as a one-time lifetime purchase, processed by Paystack. Monthly subscriptions renew automatically until canceled; you can cancel anytime from your account, which takes effect at the end of the current billing period.</p>
+
+    <h2>No warranty</h2>
+    <p>This tool is provided "as is," without any warranty of accuracy, uptime, or fitness for a particular purpose. We aren't liable for any loss arising from its use, including errors in a generated invoice.</p>
+
+    <h2>Changes</h2>
+    <p>We may update these terms or the tool itself at any time. Continued use after a change means you accept the updated terms.</p>
+
+    <h2>Contact</h2>
+    <p>Questions can be sent to [add your contact email].</p>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section id="faq" class="section-divider">
+  <div class="section-inner">
+    <div class="kicker">Frequently asked</div>
+    <h2 class="article-title" style="font-size:24px;">Invoice generator FAQ</h2>
+    <div class="faq-list">
+      <div class="faq-item">
+        <h3>Is this invoice generator really free?</h3>
+        <p>The core tool is free forever, with no sign-up required. An optional Pro plan adds saved clients, invoice history, and status tracking for people who invoice regularly.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Where is my invoice data stored?</h3>
+        <p>Without an account, everything runs in your browser and stays in local storage on your device. With a Pro account, your data is stored securely with our database provider so it's available across devices.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Can I add my own logo and brand colors?</h3>
+        <p>Yes. You can upload a logo and choose from several accent colors to match your brand before downloading the PDF.</p>
+      </div>
+      <div class="faq-item">
+        <h3>What file format do I get?</h3>
+        <p>A ready-to-send PDF, generated directly in your browser when you click Download.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Does it support different currencies and tax rates?</h3>
+        <p>Yes. You can pick from several major currencies and add a custom tax rate that's calculated automatically.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>&copy; <span id="year"></span> ledgernote</span>
+  <span><a href="#privacy">Privacy</a><a href="#terms">Terms</a></span>
+</footer>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // ============================================================
+  // CONFIG — fill these in before deploying
+  // ============================================================
+  const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+  const SUPABASE_ANON_KEY = 'YOUR-SUPABASE-ANON-KEY'; // public/anon key only — never the service role key
+  const BACKEND_URL = 'https://your-backend.example'; // where server.js is deployed
+
+  const supabase = (window.supabase && SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('YOUR-PROJECT'))
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+  const STORAGE_KEY = 'ledgernote-draft-v1';
+  const ACCENTS = [
+    {id:'forest', main:'#2F5D50', dark:'#1F4038'},
+    {id:'brass',  main:'#A9793B', dark:'#7C5B27'},
+    {id:'navy',   main:'#2C3E63', dark:'#1E2A46'},
+    {id:'plum',   main:'#6B3A52', dark:'#4A2739'},
+    {id:'slate',  main:'#45535B', dark:'#2E383D'}
+  ];
+
+  let items = [{desc:'', qty:1, rate:0}, {desc:'', qty:1, rate:0}];
+  let logoDataUrl = null;
+  let accent = ACCENTS[0];
+  let saveTimer = null;
+
+  // ---- Pro / auth state ----
+  let session = null;
+  let isPro = false;
+  let savedClients = [];       // [{id, name, details}]
+  let currentInvoiceId = null; // set once a Pro invoice has been saved at least once
+  let authMode = 'login';      // 'login' | 'signup'
+
+  /* ---------- swatches ---------- */
+  function renderSwatches(){
+    const wrap = $('swatches');
+    wrap.innerHTML = '';
+    ACCENTS.forEach(a=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch' + (a.id===accent.id ? ' active' : '');
+      b.style.background = a.main;
+      b.title = a.id.charAt(0).toUpperCase()+a.id.slice(1);
+      b.setAttribute('aria-label', 'Accent color: ' + b.title);
+      b.addEventListener('click', ()=>{ accent = a; renderSwatches(); applyAccent(); updatePreview(); queueSave(); });
+      wrap.appendChild(b);
+    });
+  }
+  function applyAccent(){
+    const sheet = $('invoice-sheet');
+    sheet.style.setProperty('--acc', accent.main);
+    sheet.style.setProperty('--acc-dark', accent.dark);
+  }
+
+  /* ---------- items ---------- */
+  function renderItemRows(){
+    const list = $('itemsList');
+    list.innerHTML = '';
+    items.forEach((item, i)=>{
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      row.innerHTML = `
+        <input type="text" data-field="desc" data-i="${i}" placeholder="Design services" value="${escapeAttr(item.desc)}">
+        <input type="number" min="0" step="1" data-field="qty" data-i="${i}" value="${item.qty}">
+        <input type="number" min="0" step="0.01" data-field="rate" data-i="${i}" value="${item.rate}">
+        <span class="amt-readout" data-amt="${i}">—</span>
+        <button type="button" class="remove-item" data-i="${i}" title="Remove line" aria-label="Remove line item">×</button>
+      `;
+      list.appendChild(row);
+    });
+    list.querySelectorAll('input').forEach(inp=> inp.addEventListener('input', onItemInput));
+    list.querySelectorAll('.remove-item').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const i = parseInt(btn.dataset.i,10);
+        if(items.length>1){ items.splice(i,1); renderItemRows(); updatePreview(); queueSave(); }
+      });
+    });
+    const rateInputs = list.querySelectorAll('input[data-field="rate"]');
+    const lastRate = rateInputs[rateInputs.length-1];
+    if(lastRate){
+      lastRate.addEventListener('keydown', (e)=>{
+        if(e.key==='Enter'){
+          e.preventDefault();
+          items.push({desc:'', qty:1, rate:0});
+          renderItemRows(); updatePreview(); queueSave();
+          const list2 = $('itemsList');
+          const newDesc = list2.querySelector(`input[data-field="desc"][data-i="${items.length-1}"]`);
+          if(newDesc) newDesc.focus();
+        }
+      });
+    }
+  }
+
+  function onItemInput(e){
+    const i = parseInt(e.target.dataset.i,10);
+    const field = e.target.dataset.field;
+    let val = e.target.value;
+    if(field==='qty' || field==='rate'){ val = parseFloat(val)||0; }
+    items[i][field] = val;
+    const symbol = $('currency').value;
+    const amt = (parseFloat(items[i].qty)||0) * (parseFloat(items[i].rate)||0);
+    const readout = document.querySelector(`.amt-readout[data-amt="${i}"]`);
+    if(readout) readout.textContent = money(amt, symbol);
+    updatePreview();
+    queueSave();
+  }
+
+  $('addItemBtn').addEventListener('click', ()=>{ items.push({desc:'', qty:1, rate:0}); renderItemRows(); updatePreview(); queueSave(); });
+
+  function escapeAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function money(n, symbol){ return symbol + n.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtDate(str){
+    if(!str) return '—';
+    const d = new Date(str+'T00:00:00');
+    if(isNaN(d)) return str;
+    return d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+  }
+
+  /* ---------- logo ---------- */
+  function setLogo(dataUrl){
+    logoDataUrl = dataUrl;
+    if(dataUrl){
+      $('logoThumb').src = dataUrl; $('logoThumb').style.display = 'block';
+      $('prev-logo').src = dataUrl; $('prev-logo').style.display = 'block';
+      $('logoCopy').innerHTML = '<strong>Logo added</strong>Shown at the top of your invoice';
+      $('logoRemoveBtn').style.display = 'inline-block';
+    } else {
+      $('logoThumb').style.display = 'none'; $('logoThumb').removeAttribute('src');
+      $('prev-logo').style.display = 'none'; $('prev-logo').removeAttribute('src');
+      $('logoCopy').innerHTML = '<strong>Add a logo</strong>Drop an image here, or';
+      $('logoRemoveBtn').style.display = 'none';
+    }
+  }
+  function readLogoFile(file){
+    if(!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{ setLogo(ev.target.result); updatePreview(); queueSave(); };
+    reader.readAsDataURL(file);
+  }
+  $('logoPickBtn').addEventListener('click', ()=> $('logoInput').click());
+  $('logoInput').addEventListener('change', (e)=> readLogoFile(e.target.files[0]));
+  $('logoRemoveBtn').addEventListener('click', ()=>{ setLogo(null); $('logoInput').value=''; updatePreview(); queueSave(); });
+  const zone = $('logoZone');
+  ['dragenter','dragover'].forEach(ev=> zone.addEventListener(ev, (e)=>{ e.preventDefault(); zone.classList.add('drag-over'); }));
+  ['dragleave','drop'].forEach(ev=> zone.addEventListener(ev, (e)=>{ e.preventDefault(); zone.classList.remove('drag-over'); }));
+  zone.addEventListener('drop', (e)=>{ const f = e.dataTransfer.files && e.dataTransfer.files[0]; readLogoFile(f); });
+
+  /* ---------- watched fields ---------- */
+  const watched = ['bizName','bizDetails','clientName','clientDetails','invNum','currency','issueDate','dueDate','taxRate','notes'];
+  watched.forEach(id=> $(id).addEventListener('input', ()=>{ updatePreview(); queueSave(); }));
+  $('currency').addEventListener('change', ()=>{ updatePreview(); queueSave(); });
+
+  function updatePreview(){
+    const symbol = $('currency').value;
+    $('prevBizName').textContent = $('bizName').value.trim() || 'Your business name';
+    $('prevBizDetails').textContent = $('bizDetails').value.trim() || 'Address · email · phone';
+    $('prevClientName').textContent = $('clientName').value.trim() || 'Client name';
+    $('prevClientDetails').textContent = $('clientDetails').value.trim();
+    $('prevInvNum').textContent = $('invNum').value.trim() || 'INV-0001';
+    $('prevIssueDate').textContent = fmtDate($('issueDate').value);
+    $('prevDueDate').textContent = fmtDate($('dueDate').value);
+
+    const body = $('prevItemsBody');
+    body.innerHTML = '';
+    let subtotal = 0;
+    items.forEach(item=>{
+      const qty = parseFloat(item.qty)||0;
+      const rate = parseFloat(item.rate)||0;
+      const amount = qty*rate;
+      subtotal += amount;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(item.desc) || '<span style="color:var(--ink-soft)">—</span>'}</td>
+        <td class="num">${qty}</td>
+        <td class="num">${money(rate, symbol)}</td>
+        <td class="num">${money(amount, symbol)}</td>
+      `;
+      body.appendChild(tr);
+    });
+
+    const taxRate = parseFloat($('taxRate').value)||0;
+    const taxAmt = subtotal * (taxRate/100);
+    const total = subtotal + taxAmt;
+
+    $('prevSubtotal').textContent = money(subtotal, symbol);
+    if(taxRate>0){
+      $('taxLine').style.display='flex';
+      $('taxLabel').textContent = `Tax (${taxRate}%)`;
+      $('prevTax').textContent = money(taxAmt, symbol);
+    } else { $('taxLine').style.display='none'; }
+    $('prevTotal').textContent = money(total, symbol);
+
+    const notes = $('notes').value.trim();
+    $('notesBlock').style.display = notes ? 'block' : 'none';
+    $('prevNotes').textContent = notes;
+
+    updateMissingHint();
+  }
+
+  function updateMissingHint(){
+    const missing = [];
+    if(!$('bizName').value.trim()) missing.push('your business name');
+    if(!$('clientName').value.trim()) missing.push('a client name');
+    if(!items.some(it=> it.desc.trim() && (parseFloat(it.rate)||0) > 0)) missing.push('at least one line item');
+    if(!$('dueDate').value) missing.push('a due date');
+    const hint = $('missingHint');
+    if(missing.length===0){ hint.innerHTML = ''; return; }
+    hint.innerHTML = 'Still needed: <strong>' + escapeHtml(missing.join(', ')) + '</strong>';
+  }
+
+  /* ---------- mobile view switch ---------- */
+  const toolSection = $('tool');
+  document.querySelectorAll('#viewSwitch button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#viewSwitch button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      toolSection.classList.remove('mode-edit','mode-preview');
+      toolSection.classList.add('mode-' + btn.dataset.mode);
+    });
+  });
+
+  /* ---------- reset ---------- */
+  $('resetBtn').addEventListener('click', ()=>{
+    if(!confirm('Start a new invoice? This clears everything currently in the form.')) return;
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+    currentInvoiceId = null;
+    $('invStatus').value = 'draft';
+    $('isRecurring').checked = false;
+    $('recurrenceInterval').style.display = 'none';
+    location.reload();
+  });
+
+  /* ---------- local autosave (free tier / offline fallback) ---------- */
+  function collectState(){
+    return {
+      bizName: $('bizName').value, bizDetails: $('bizDetails').value,
+      clientName: $('clientName').value, clientDetails: $('clientDetails').value,
+      invNum: $('invNum').value, currency: $('currency').value,
+      issueDate: $('issueDate').value, dueDate: $('dueDate').value,
+      taxRate: $('taxRate').value, notes: $('notes').value,
+      items: items, logoDataUrl: logoDataUrl, accentId: accent.id
+    };
+  }
+  function queueSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(collectState())); showAutosave('Draft saved'); }
+      catch(e){ /* storage unavailable — fail silently */ }
+      // Pro users also get their business profile synced to their account
+      // in the background, independent of the manual "Save invoice" button.
+      if(isPro) queueProfileSync();
+    }, 500);
+  }
+  let autosaveHideTimer = null;
+  function showAutosave(text){
+    const pill = $('autosavePill');
+    $('autosaveText').textContent = text;
+    pill.classList.add('show');
+    clearTimeout(autosaveHideTimer);
+    autosaveHideTimer = setTimeout(()=> pill.classList.remove('show'), 1800);
+  }
+  function loadDraft(){
+    let raw;
+    try{ raw = localStorage.getItem(STORAGE_KEY); }catch(e){ return; }
+    if(!raw) return;
+    let s;
+    try{ s = JSON.parse(raw); }catch(e){ return; }
+    if(!s) return;
+    $('bizName').value = s.bizName||''; $('bizDetails').value = s.bizDetails||'';
+    $('clientName').value = s.clientName||''; $('clientDetails').value = s.clientDetails||'';
+    $('invNum').value = s.invNum||'INV-0001'; $('currency').value = s.currency||'$';
+    $('issueDate').value = s.issueDate||''; $('dueDate').value = s.dueDate||'';
+    $('taxRate').value = s.taxRate||0; $('notes').value = s.notes||'';
+    if(Array.isArray(s.items) && s.items.length) items = s.items;
+    if(s.logoDataUrl) setLogo(s.logoDataUrl);
+    if(s.accentId){ const found = ACCENTS.find(a=>a.id===s.accentId); if(found) accent = found; }
+    showAutosave('Draft restored');
+  }
+
+  /* ---------- toast ---------- */
+  let toastTimer = null;
+  function showToast(text){
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> t.classList.remove('show'), 2600);
+  }
+
+  /* ============================================================
+     AUTH — Supabase email/password
+     ============================================================ */
+  function openAuthModal(mode){
+    authMode = mode;
+    $('authOverlay').classList.add('show');
+    $('authError').classList.remove('show');
+    $('authTitle').textContent = mode === 'login' ? 'Log in' : 'Create your account';
+    $('authSubmitBtn').textContent = mode === 'login' ? 'Log in' : 'Sign up';
+    $('authToggleCopy').textContent = mode === 'login' ? "Don't have an account?" : 'Already have an account?';
+    $('authToggleBtn').textContent = mode === 'login' ? 'Sign up' : 'Log in';
+  }
+  function closeAuthModal(){ $('authOverlay').classList.remove('show'); }
+
+  $('loginBtn').addEventListener('click', ()=>{
+    if(session){ signOut(); } else { openAuthModal('login'); }
+  });
+  $('authCloseBtn').addEventListener('click', closeAuthModal);
+  $('authOverlay').addEventListener('click', (e)=>{ if(e.target.id==='authOverlay') closeAuthModal(); });
+  $('authToggleBtn').addEventListener('click', ()=> openAuthModal(authMode === 'login' ? 'signup' : 'login'));
+
+  $('authSubmitBtn').addEventListener('click', async ()=>{
+    if(!supabase){ showAuthError('Backend not configured yet — set SUPABASE_URL / SUPABASE_ANON_KEY.'); return; }
+    const email = $('authEmail').value.trim();
+    const password = $('authPassword').value;
+    if(!email || !password){ showAuthError('Enter an email and password.'); return; }
+
+    $('authSubmitBtn').disabled = true;
+    try{
+      const { data, error } = authMode === 'login'
+        ? await supabase.auth.signInWithPassword({ email, password })
+        : await supabase.auth.signUp({ email, password });
+      if(error) throw error;
+      if(authMode === 'signup' && !data.session){
+        showAuthError('Check your email to confirm your account, then log in.');
+        $('authSubmitBtn').disabled = false;
+        return;
+      }
+      closeAuthModal();
+      showToast(authMode === 'login' ? 'Logged in' : 'Account created');
+    } catch(err){
+      showAuthError(err.message || 'Something went wrong.');
+    } finally {
+      $('authSubmitBtn').disabled = false;
+    }
+  });
+  function showAuthError(msg){
+    const el = $('authError');
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+
+  async function signOut(){
+    if(supabase) await supabase.auth.signOut();
+    session = null; isPro = false; savedClients = []; currentInvoiceId = null;
+    renderAuthArea();
+    renderProUI();
+  }
+
+  function renderAuthArea(){
+    const area = $('authArea');
+    if(session){
+      area.innerHTML = `<span class="auth-user">${isPro ? '<span class="pro-badge">PRO</span>' : ''}${escapeHtml(session.user.email)}</span><button type="button" class="auth-btn" id="loginBtn">Log out</button>`;
+    } else {
+      area.innerHTML = `<button type="button" class="auth-btn" id="loginBtn">Log in</button>`;
+    }
+    // re-bind since innerHTML replaced the button
+    $('loginBtn').addEventListener('click', ()=>{ if(session) signOut(); else openAuthModal('login'); });
+  }
+
+  function renderProUI(){
+    $('upgradeBanner').style.display = (session && !isPro) ? 'block' : 'none';
+    $('proToolbar').style.display = (session && isPro) ? 'block' : 'none';
+  }
+
+  /* ============================================================
+     PRO DATA — profile, clients, invoices (Supabase)
+     ============================================================ */
+  async function authedFetch(path, opts={}){
+    const token = session && session.access_token;
+    return fetch(`${BACKEND_URL}${path}`, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opts.headers||{}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    });
+  }
+
+  async function refreshProStatus(){
+    if(!session) { isPro = false; return; }
+    try{
+      const r = await authedFetch('/api/me/pro-status');
+      const data = await r.json();
+      isPro = !!data.isPro;
+    } catch(e){ isPro = false; }
+  }
+
+  async function loadProfile(){
+    if(!supabase || !session) return;
+    const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+    if(!data) return;
+    if(data.business_name) $('bizName').value = data.business_name;
+    if(data.business_details) $('bizDetails').value = data.business_details;
+    if(data.default_currency) $('currency').value = data.default_currency;
+    if(data.default_tax_rate) $('taxRate').value = data.default_tax_rate;
+    if(data.logo_url) setLogo(data.logo_url);
+    if(data.accent_color){ const found = ACCENTS.find(a=>a.id===data.accent_color); if(found){ accent = found; renderSwatches(); applyAccent(); } }
+  }
+
+  let profileSyncTimer = null;
+  function queueProfileSync(){
+    clearTimeout(profileSyncTimer);
+    profileSyncTimer = setTimeout(syncProfile, 700);
+  }
+  async function syncProfile(){
+    if(!supabase || !session || !isPro) return;
+    await supabase.from('profiles').upsert({
+      id: session.user.id,
+      business_name: $('bizName').value,
+      business_details: $('bizDetails').value,
+      default_currency: $('currency').value,
+      default_tax_rate: parseFloat($('taxRate').value)||0,
+      accent_color: accent.id,
+      // Note: logo is kept as a data URL in local drafts; for Pro, upload it
+      // to Supabase Storage and store the resulting public URL here instead
+      // of the raw data URL if you want it to sync across devices.
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async function loadClients(){
+    if(!supabase || !session) return;
+    const { data } = await supabase.from('clients').select('*').eq('user_id', session.user.id).order('name');
+    savedClients = data || [];
+    const picker = $('clientPicker');
+    picker.innerHTML = '<option value="">— New client —</option>' +
+      savedClients.map(c=> `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('');
+  }
+  $('clientPicker').addEventListener('change', ()=>{
+    const c = savedClients.find(c=> c.id === $('clientPicker').value);
+    if(c){ $('clientName').value = c.name; $('clientDetails').value = c.details || ''; }
+    else { $('clientName').value = ''; $('clientDetails').value = ''; }
+    updatePreview(); queueSave();
+  });
+
+  $('isRecurring').addEventListener('change', ()=>{
+    $('recurrenceInterval').style.display = $('isRecurring').checked ? 'block' : 'none';
+  });
+
+  $('saveInvoiceBtn').addEventListener('click', saveInvoiceToSupabase);
+  async function saveInvoiceToSupabase(){
+    if(!supabase || !session || !isPro) return;
+    const btn = $('saveInvoiceBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try{
+      // Upsert the client first so the invoice can reference it.
+      let clientId = $('clientPicker').value || null;
+      const clientName = $('clientName').value.trim();
+      if(clientName){
+        if(clientId){
+          await supabase.from('clients').update({ name: clientName, details: $('clientDetails').value }).eq('id', clientId);
+        } else {
+          const { data: newClient } = await supabase.from('clients').insert({
+            user_id: session.user.id, name: clientName, details: $('clientDetails').value
+          }).select().single();
+          if(newClient) clientId = newClient.id;
+        }
+      }
+
+      const subtotal = items.reduce((s,it)=> s + (parseFloat(it.qty)||0)*(parseFloat(it.rate)||0), 0);
+      const taxRate = parseFloat($('taxRate').value)||0;
+      const taxAmount = subtotal * (taxRate/100);
+
+      const invoicePayload = {
+        user_id: session.user.id,
+        client_id: clientId,
+        invoice_number: $('invNum').value.trim() || 'INV-0001',
+        currency: $('currency').value,
+        issue_date: $('issueDate').value || null,
+        due_date: $('dueDate').value || null,
+        tax_rate: taxRate,
+        notes: $('notes').value,
+        accent_color: accent.id,
+        status: $('invStatus').value,
+        subtotal, tax_amount: taxAmount, total: subtotal + taxAmount,
+        is_recurring: $('isRecurring').checked,
+        recurrence_interval: $('isRecurring').checked ? $('recurrenceInterval').value : null,
+        updated_at: new Date().toISOString()
+      };
+
+      let invoiceId = currentInvoiceId;
+      if(invoiceId){
+        await supabase.from('invoices').update(invoicePayload).eq('id', invoiceId);
+        await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
+      } else {
+        const { data: newInvoice, error } = await supabase.from('invoices').insert(invoicePayload).select().single();
+        if(error) throw error;
+        invoiceId = newInvoice.id;
+        currentInvoiceId = invoiceId;
+      }
+
+      const itemRows = items
+        .filter(it=> it.desc.trim() || (parseFloat(it.rate)||0) > 0)
+        .map((it,i)=> ({ invoice_id: invoiceId, description: it.desc, qty: it.qty, rate: it.rate, position: i }));
+      if(itemRows.length) await supabase.from('invoice_items').insert(itemRows);
+
+      showToast('Invoice saved');
+      loadClients();
+    } catch(err){
+      console.error(err);
+      showToast('Could not save invoice');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save invoice';
+    }
+  }
+
+  /* ---------- invoice history ---------- */
+  $('openHistoryBtn').addEventListener('click', ()=>{ $('historyOverlay').classList.add('show'); loadInvoiceHistory(); });
+  $('historyCloseBtn').addEventListener('click', ()=> $('historyOverlay').classList.remove('show'));
+  $('historyOverlay').addEventListener('click', (e)=>{ if(e.target.id==='historyOverlay') $('historyOverlay').classList.remove('show'); });
+
+  async function loadInvoiceHistory(){
+    const list = $('historyList');
+    list.innerHTML = '<div class="history-empty">Loading…</div>';
+    const { data, error } = await supabase
+      .from('invoices').select('*, clients(name)')
+      .eq('user_id', session.user.id)
+      .order('updated_at', { ascending:false });
+    if(error || !data || !data.length){
+      list.innerHTML = '<div class="history-empty">No saved invoices yet — save one to see it here.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    data.forEach(inv=>{
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.innerHTML = `
+        <div class="hr-main">
+          <div class="hr-num">${escapeHtml(inv.invoice_number)}</div>
+          <div class="hr-sub">${escapeHtml((inv.clients && inv.clients.name) || 'No client')} · ${money(inv.total||0, inv.currency||'$')}</div>
+        </div>
+        <span class="history-status ${inv.status}">${inv.status}</span>
+      `;
+      row.addEventListener('click', ()=> loadInvoiceIntoEditor(inv.id));
+      list.appendChild(row);
+    });
+  }
+
+  async function loadInvoiceIntoEditor(invoiceId){
+    const { data: inv } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
+    const { data: invItems } = await supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('position');
+    if(!inv) return;
+
+    currentInvoiceId = inv.id;
+    $('invNum').value = inv.invoice_number || 'INV-0001';
+    $('currency').value = inv.currency || '$';
+    $('issueDate').value = inv.issue_date || '';
+    $('dueDate').value = inv.due_date || '';
+    $('taxRate').value = inv.tax_rate || 0;
+    $('notes').value = inv.notes || '';
+    $('invStatus').value = inv.status || 'draft';
+    $('isRecurring').checked = !!inv.is_recurring;
+    $('recurrenceInterval').style.display = inv.is_recurring ? 'block' : 'none';
+    if(inv.recurrence_interval) $('recurrenceInterval').value = inv.recurrence_interval;
+    if(inv.accent_color){ const found = ACCENTS.find(a=>a.id===inv.accent_color); if(found){ accent = found; renderSwatches(); applyAccent(); } }
+
+    if(inv.client_id){
+      $('clientPicker').value = inv.client_id;
+      const c = savedClients.find(c=> c.id === inv.client_id);
+      if(c){ $('clientName').value = c.name; $('clientDetails').value = c.details || ''; }
+    } else {
+      $('clientPicker').value = '';
+    }
+
+    items = (invItems && invItems.length) ? invItems.map(it=> ({desc: it.description, qty: it.qty, rate: it.rate})) : [{desc:'', qty:1, rate:0}];
+    renderItemRows();
+    updatePreview();
+    $('historyOverlay').classList.remove('show');
+    showToast('Invoice loaded');
+  }
+
+  /* ============================================================
+     UPGRADE — Paystack checkout via the backend
+     ============================================================ */
+  async function startUpgrade(plan){
+    if(!session){ openAuthModal('login'); return; }
+    try{
+      const r = await authedFetch('/api/paystack/initialize', {
+        method: 'POST', body: JSON.stringify({ plan })
+      });
+      const data = await r.json();
+      if(data.authorization_url){ window.location.href = data.authorization_url; }
+      else { showToast(data.error || 'Could not start checkout'); }
+    } catch(e){
+      showToast('Could not reach the server');
+    }
+  }
+  $('upgradeMonthlyBtn').addEventListener('click', ()=> startUpgrade('monthly'));
+  $('upgradeLifetimeBtn').addEventListener('click', ()=> startUpgrade('lifetime'));
+
+  /* ---------- react to auth state changes ---------- */
+  async function onSessionReady(){
+    renderAuthArea();
+    if(session){
+      await refreshProStatus();
+      renderAuthArea();
+      renderProUI();
+      if(isPro){
+        await loadProfile();
+        await loadClients();
+        updatePreview();
+      }
+    } else {
+      renderProUI();
+    }
+  }
+
+  if(supabase){
+    supabase.auth.getSession().then(({ data })=>{ session = data.session; onSessionReady(); });
+    supabase.auth.onAuthStateChange((_event, newSession)=>{ session = newSession; onSessionReady(); });
+  }
+
+  // If we've just come back from a Paystack redirect, re-check Pro status.
+  if(location.search.includes('upgrade=success')){
+    setTimeout(async ()=>{ await refreshProStatus(); renderAuthArea(); renderProUI(); showToast('Welcome to Pro'); }, 1200);
+  }
+
+  /* ---------- mobile view switch ---------- */
+  const toolSection2 = $('tool');
+  document.querySelectorAll('#viewSwitch button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#viewSwitch button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      toolSection2.classList.remove('mode-edit','mode-preview');
+      toolSection2.classList.add('mode-' + btn.dataset.mode);
+    });
+  });
+
+  /* ---------- init ---------- */
+  const today = new Date();
+  const due = new Date(); due.setDate(due.getDate()+14);
+  const fmtInput = d => d.toISOString().slice(0,10);
+  $('issueDate').value = fmtInput(today);
+  $('dueDate').value = fmtInput(due);
+
+  renderSwatches();
+  loadDraft();
+  applyAccent();
+  renderItemRows();
+  updatePreview();
+  renderAuthArea();
+  renderProUI();
+
+  /* ---------- PDF generation ---------- */
+  function generatePdf(){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({unit:'pt', format:'a4'});
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 50;
+    let y = 56;
+    const symbol = $('currency').value;
+    const ink = '#1E2A38', soft = '#57666B';
+    const acc = accent.main, accDark = accent.dark;
+
+    if(logoDataUrl){
+      try{ doc.addImage(logoDataUrl, marginX, y-14, 0, 34, undefined, 'FAST'); }catch(e){}
+    }
+
+    const bizNameVal = $('bizName').value.trim() || 'Your business name';
+    const bizDetailsVal = $('bizDetails').value.trim();
+
+    let leftY = logoDataUrl ? y+34 : y;
+    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(ink);
+    doc.text(bizNameVal, marginX, leftY);
+    leftY += 16;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(soft);
+    bizDetailsVal.split('\n').filter(Boolean).forEach(line=>{ doc.text(line, marginX, leftY); leftY += 12; });
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.setTextColor(accDark);
+    doc.text('INVOICE', pageW-marginX, y, {align:'right'});
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text($('invNum').value.trim() || 'INV-0001', pageW-marginX, y+16, {align:'right'});
+
+    let headBottom = Math.max(leftY+6, y+30);
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(marginX, headBottom, pageW-marginX, headBottom);
+
+    y = headBottom + 26;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text('BILLED TO', marginX, y);
+    doc.text('ISSUED', pageW-marginX-160, y);
+    doc.text('DUE', pageW-marginX-70, y);
+
+    doc.setFontSize(11); doc.setTextColor(ink);
+    doc.text($('clientName').value.trim() || 'Client name', marginX, y+15);
+    doc.setFontSize(9); doc.setTextColor(soft);
+    let clY = y+29;
+    ($('clientDetails').value.trim().split('\n').filter(Boolean)).forEach(line=>{ doc.text(line, marginX, clY); clY += 11; });
+
+    doc.setFontSize(10); doc.setTextColor(ink);
+    doc.text(fmtDate($('issueDate').value), pageW-marginX-160, y+15);
+    doc.text(fmtDate($('dueDate').value), pageW-marginX-70, y+15);
+
+    y = Math.max(clY, y+30) + 22;
+
+    const col = { desc:marginX, qty:pageW-marginX-160, rate:pageW-marginX-100, amt:pageW-marginX };
+    doc.setDrawColor(ink); doc.setLineWidth(1);
+    doc.line(marginX, y, pageW-marginX, y);
+    y += 14;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text('DESCRIPTION', col.desc, y);
+    doc.text('QTY', col.qty, y, {align:'right'});
+    doc.text('RATE', col.rate, y, {align:'right'});
+    doc.text('AMOUNT', col.amt, y, {align:'right'});
+    y += 8;
+    doc.setDrawColor('#C7D0C2'); doc.setLineWidth(0.75);
+    doc.line(marginX, y, pageW-marginX, y);
+    y += 16;
+
+    let subtotal = 0;
+    doc.setFontSize(10); doc.setTextColor(ink);
+    items.forEach(item=>{
+      const qty = parseFloat(item.qty)||0;
+      const rate = parseFloat(item.rate)||0;
+      const amount = qty*rate;
+      subtotal += amount;
+      const descLines = doc.splitTextToSize(item.desc || '—', col.qty-col.desc-20);
+      doc.text(descLines, col.desc, y);
+      doc.text(String(qty), col.qty, y, {align:'right'});
+      doc.text(money(rate, symbol), col.rate, y, {align:'right'});
+      doc.text(money(amount, symbol), col.amt, y, {align:'right'});
+      y += Math.max(descLines.length*12, 16);
+      doc.setDrawColor('#DCE3D7'); doc.setLineWidth(0.5);
+      doc.line(marginX, y-4, pageW-marginX, y-4);
+    });
+
+    y += 10;
+    const taxRate = parseFloat($('taxRate').value)||0;
+    const taxAmt = subtotal*(taxRate/100);
+    const total = subtotal+taxAmt;
+
+    const totalsX = pageW-marginX-160;
+    doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text('Subtotal', totalsX, y);
+    doc.setTextColor(ink);
+    doc.text(money(subtotal, symbol), pageW-marginX, y, {align:'right'});
+    y += 15;
+
+    if(taxRate>0){
+      doc.setTextColor(soft);
+      doc.text(`Tax (${taxRate}%)`, totalsX, y);
+      doc.setTextColor(ink);
+      doc.text(money(taxAmt, symbol), pageW-marginX, y, {align:'right'});
+      y += 15;
+    }
+
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(totalsX, y, pageW-marginX, y);
+    y += 16;
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(accDark);
+    doc.text('Total due', totalsX, y);
+    doc.text(money(total, symbol), pageW-marginX, y, {align:'right'});
+
+    const notesVal = $('notes').value.trim();
+    if(notesVal){
+      y += 34;
+      doc.setDrawColor('#DCE3D7'); doc.setLineWidth(0.5);
+      doc.line(marginX, y-14, pageW-marginX, y-14);
+      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(soft);
+      doc.text('NOTES', marginX, y);
+      y += 13;
+      doc.setFontSize(9.5);
+      const noteLines = doc.splitTextToSize(notesVal, pageW-marginX*2);
+      doc.text(noteLines, marginX, y);
+    }
+
+    const filenameSafe = ($('invNum').value.trim() || 'invoice').replace(/[^a-z0-9\-_]/gi,'_');
+    doc.save(`${filenameSafe}.pdf`);
+  }
+
+  function handleDownloadClick(btn){
+    btn.classList.add('loading');
+    btn.disabled = true;
+    setTimeout(()=>{
+      try{ generatePdf(); showToast('Invoice downloaded'); }
+      catch(e){ showToast('Something went wrong generating the PDF'); }
+      finally{ btn.classList.remove('loading'); btn.disabled = false; }
+    }, 150);
+  }
+  $('downloadBtn').addEventListener('click', ()=> handleDownloadClick($('downloadBtn')));
+  $('downloadBtnMobile').addEventListener('click', ()=> handleDownloadClick($('downloadBtnMobile')));
+})();
+</script>
+</body>
+</html>
