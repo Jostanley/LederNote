@@ -717,6 +717,826 @@
 <footer>
   <span>&copy; <span id="year"></span> ledgernote</span>
   <span><a href="#privacy">Privacy</a><a href="#terms">Terms</a></span>
-</footer>         
+</footer>   
+ <script>
+window.addEventListener('DOMContentLoaded', function(){
+(function(){
+  const $ = id => document.getElementById(id);
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // ============================================================
+  // CONFIG — fill these in before deploying
+  // ============================================================
+  const SUPABASE_URL = 'https://vwbhebmhjfyajbsqiqtd.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3YmhlYm1oamZ5YWpic3FpcXRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMzY4ODcsImV4cCI6MjEwNDYxMjg4N30.6HJXtnTjnDuisg-_mngebkbhyR0tScGQbMaqELWXW8o'; // public/anon key only — never the service role key
+  const BACKEND_URL = 'https://ledernoteback.onrender.com'; // where server.js is deployed
+
+  const supabase = (window.supabase && SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('YOUR-PROJECT'))
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+  const STORAGE_KEY = 'ledgernote-draft-v1';
+  const ACCENTS = [
+    {id:'forest', main:'#2F5D50', dark:'#1F4038'},
+    {id:'brass',  main:'#A9793B', dark:'#7C5B27'},
+    {id:'navy',   main:'#2C3E63', dark:'#1E2A46'},
+    {id:'plum',   main:'#6B3A52', dark:'#4A2739'},
+    {id:'slate',  main:'#45535B', dark:'#2E383D'}
+  ];
+  const PRESET_CURRENCIES = ['$','€','£','₹','C$','A$'];
+
+  let items = [{desc:'', qty:1, rate:0}, {desc:'', qty:1, rate:0}];
+  let logoDataUrl = null;
+  let accent = ACCENTS[0];
+  let saveTimer = null;
+
+  // ---- Pro / auth state ----
+  let session = null;
+  let isPro = false;
+  let savedClients = [];       // [{id, name, details}]
+  let currentInvoiceId = null; // set once a Pro invoice has been saved at least once
+  let authMode = 'login';      // 'login' | 'signup'
+
+  /* ---------- currency ---------- */
+  function currentSymbol(){
+    return $('currency').value === 'custom'
+      ? ($('customCurrency').value.trim() || '$')
+      : $('currency').value;
+  }
+
+  /* ---------- swatches ---------- */
+  function renderSwatches(){
+    const wrap = $('swatches');
+    wrap.innerHTML = '';
+    ACCENTS.forEach(a=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch' + (a.id===accent.id ? ' active' : '');
+      b.style.background = a.main;
+      b.title = a.id.charAt(0).toUpperCase()+a.id.slice(1);
+      b.setAttribute('aria-label', 'Accent color: ' + b.title);
+      b.addEventListener('click', ()=>{ accent = a; renderSwatches(); applyAccent(); updatePreview(); queueSave(); });
+      wrap.appendChild(b);
+    });
+  }
+  function applyAccent(){
+    const sheet = $('invoice-sheet');
+    sheet.style.setProperty('--acc', accent.main);
+    sheet.style.setProperty('--acc-dark', accent.dark);
+  }
+
+  /* ---------- items ---------- */
+  function renderItemRows(){
+    const list = $('itemsList');
+    list.innerHTML = '';
+    items.forEach((item, i)=>{
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      row.innerHTML = `
+        <input type="text" data-field="desc" data-i="${i}" placeholder="Design services" value="${escapeAttr(item.desc)}">
+        <input type="number" min="0" step="1" data-field="qty" data-i="${i}" value="${item.qty}">
+        <input type="number" min="0" step="0.01" data-field="rate" data-i="${i}" value="${item.rate}">
+        <span class="amt-readout" data-amt="${i}">—</span>
+        <button type="button" class="remove-item" data-i="${i}" title="Remove line" aria-label="Remove line item">×</button>
+      `;
+      list.appendChild(row);
+    });
+    list.querySelectorAll('input').forEach(inp=> inp.addEventListener('input', onItemInput));
+    list.querySelectorAll('.remove-item').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const i = parseInt(btn.dataset.i,10);
+        if(items.length>1){ items.splice(i,1); renderItemRows(); updatePreview(); queueSave(); }
+      });
+    });
+    const rateInputs = list.querySelectorAll('input[data-field="rate"]');
+    const lastRate = rateInputs[rateInputs.length-1];
+    if(lastRate){
+      lastRate.addEventListener('keydown', (e)=>{
+        if(e.key==='Enter'){
+          e.preventDefault();
+          items.push({desc:'', qty:1, rate:0});
+          renderItemRows(); updatePreview(); queueSave();
+          const list2 = $('itemsList');
+          const newDesc = list2.querySelector(`input[data-field="desc"][data-i="${items.length-1}"]`);
+          if(newDesc) newDesc.focus();
+        }
+      });
+    }
+  }
+
+  function onItemInput(e){
+    const i = parseInt(e.target.dataset.i,10);
+    const field = e.target.dataset.field;
+    let val = e.target.value;
+    if(field==='qty' || field==='rate'){ val = parseFloat(val)||0; }
+    items[i][field] = val;
+    const symbol = currentSymbol();
+    const amt = (parseFloat(items[i].qty)||0) * (parseFloat(items[i].rate)||0);
+    const readout = document.querySelector(`.amt-readout[data-amt="${i}"]`);
+    if(readout) readout.textContent = money(amt, symbol);
+    updatePreview();
+    queueSave();
+  }
+
+  $('addItemBtn').addEventListener('click', ()=>{ items.push({desc:'', qty:1, rate:0}); renderItemRows(); updatePreview(); queueSave(); });
+
+  function escapeAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function money(n, symbol){ return symbol + n.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+  function fmtDate(str){
+    if(!str) return '—';
+    const d = new Date(str+'T00:00:00');
+    if(isNaN(d)) return str;
+    return d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+  }
+
+  /* ---------- logo ---------- */
+  function setLogo(dataUrl){
+    logoDataUrl = dataUrl;
+    if(dataUrl){
+      $('logoThumb').src = dataUrl; $('logoThumb').style.display = 'block';
+      $('prev-logo').src = dataUrl; $('prev-logo').style.display = 'block';
+      $('logoCopy').innerHTML = '<strong>Logo added</strong>Shown at the top of your invoice';
+      $('logoRemoveBtn').style.display = 'inline-block';
+    } else {
+      $('logoThumb').style.display = 'none'; $('logoThumb').removeAttribute('src');
+      $('prev-logo').style.display = 'none'; $('prev-logo').removeAttribute('src');
+      $('logoCopy').innerHTML = '<strong>Add a logo</strong>Drop an image here, or';
+      $('logoRemoveBtn').style.display = 'none';
+    }
+  }
+  function readLogoFile(file){
+    if(!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{ setLogo(ev.target.result); updatePreview(); queueSave(); };
+    reader.readAsDataURL(file);
+  }
+  $('logoPickBtn').addEventListener('click', ()=> $('logoInput').click());
+  $('logoInput').addEventListener('change', (e)=> readLogoFile(e.target.files[0]));
+  $('logoRemoveBtn').addEventListener('click', ()=>{ setLogo(null); $('logoInput').value=''; updatePreview(); queueSave(); });
+  const zone = $('logoZone');
+  ['dragenter','dragover'].forEach(ev=> zone.addEventListener(ev, (e)=>{ e.preventDefault(); zone.classList.add('drag-over'); }));
+  ['dragleave','drop'].forEach(ev=> zone.addEventListener(ev, (e)=>{ e.preventDefault(); zone.classList.remove('drag-over'); }));
+  zone.addEventListener('drop', (e)=>{ const f = e.dataTransfer.files && e.dataTransfer.files[0]; readLogoFile(f); });
+
+  /* ---------- watched fields ---------- */
+  const watched = ['bizName','bizDetails','clientName','clientDetails','invNum','issueDate','dueDate','taxRate','notes'];
+  watched.forEach(id=> $(id).addEventListener('input', ()=>{ updatePreview(); queueSave(); }));
+
+  $('currency').addEventListener('change', ()=>{
+    $('customCurrency').style.display = $('currency').value === 'custom' ? 'block' : 'none';
+    updatePreview(); queueSave();
+  });
+  $('customCurrency').addEventListener('input', ()=>{ updatePreview(); queueSave(); });
+
+  function updatePreview(){
+    const symbol = currentSymbol();
+    $('prevBizName').textContent = $('bizName').value.trim() || 'Your business name';
+    $('prevBizDetails').textContent = $('bizDetails').value.trim() || 'Address · email · phone';
+    $('prevClientName').textContent = $('clientName').value.trim() || 'Client name';
+    $('prevClientDetails').textContent = $('clientDetails').value.trim();
+    $('prevInvNum').textContent = $('invNum').value.trim() || 'INV-0001';
+    $('prevIssueDate').textContent = fmtDate($('issueDate').value);
+    $('prevDueDate').textContent = fmtDate($('dueDate').value);
+
+    const body = $('prevItemsBody');
+    body.innerHTML = '';
+    let subtotal = 0;
+    items.forEach(item=>{
+      const qty = parseFloat(item.qty)||0;
+      const rate = parseFloat(item.rate)||0;
+      const amount = qty*rate;
+      subtotal += amount;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(item.desc) || '<span style="color:var(--ink-soft)">—</span>'}</td>
+        <td class="num">${qty}</td>
+        <td class="num">${money(rate, symbol)}</td>
+        <td class="num">${money(amount, symbol)}</td>
+      `;
+      body.appendChild(tr);
+    });
+
+    const taxRate = parseFloat($('taxRate').value)||0;
+    const taxAmt = subtotal * (taxRate/100);
+    const total = subtotal + taxAmt;
+
+    $('prevSubtotal').textContent = money(subtotal, symbol);
+    if(taxRate>0){
+      $('taxLine').style.display='flex';
+      $('taxLabel').textContent = `Tax (${taxRate}%)`;
+      $('prevTax').textContent = money(taxAmt, symbol);
+    } else { $('taxLine').style.display='none'; }
+    $('prevTotal').textContent = money(total, symbol);
+
+    const notes = $('notes').value.trim();
+    $('notesBlock').style.display = notes ? 'block' : 'none';
+    $('prevNotes').textContent = notes;
+
+    updateMissingHint();
+  }
+
+  function updateMissingHint(){
+    const missing = [];
+    if(!$('bizName').value.trim()) missing.push('your business name');
+    if(!$('clientName').value.trim()) missing.push('a client name');
+    if(!items.some(it=> it.desc.trim() && (parseFloat(it.rate)||0) > 0)) missing.push('at least one line item');
+    if(!$('dueDate').value) missing.push('a due date');
+    const hint = $('missingHint');
+    if(missing.length===0){ hint.innerHTML = ''; return; }
+    hint.innerHTML = 'Still needed: <strong>' + escapeHtml(missing.join(', ')) + '</strong>';
+  }
+
+  /* ---------- mobile view switch ---------- */
+  const toolSection = $('tool');
+  document.querySelectorAll('#viewSwitch button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#viewSwitch button').forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      toolSection.classList.remove('mode-edit','mode-preview');
+      toolSection.classList.add('mode-' + btn.dataset.mode);
+    });
+  });
+
+  /* ---------- reset ---------- */
+  $('resetBtn').addEventListener('click', ()=>{
+    if(!confirm('Start a new invoice? This clears everything currently in the form.')) return;
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+    currentInvoiceId = null;
+    $('invStatus').value = 'draft';
+    $('isRecurring').checked = false;
+    $('recurrenceInterval').style.display = 'none';
+    location.reload();
+  });
+
+  /* ---------- local autosave (free tier / offline fallback) ---------- */
+  function collectState(){
+    return {
+      bizName: $('bizName').value, bizDetails: $('bizDetails').value,
+      clientName: $('clientName').value, clientDetails: $('clientDetails').value,
+      invNum: $('invNum').value, currency: $('currency').value, customCurrency: $('customCurrency').value,
+      issueDate: $('issueDate').value, dueDate: $('dueDate').value,
+      taxRate: $('taxRate').value, notes: $('notes').value,
+      items: items, logoDataUrl: logoDataUrl, accentId: accent.id
+    };
+  }
+  function queueSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(collectState())); showAutosave('Draft saved'); }
+      catch(e){ /* storage unavailable — fail silently */ }
+      // Pro users also get their business profile synced to their account
+      // in the background, independent of the manual "Save invoice" button.
+      if(isPro) queueProfileSync();
+    }, 500);
+  }
+  let autosaveHideTimer = null;
+  function showAutosave(text){
+    const pill = $('autosavePill');
+    $('autosaveText').textContent = text;
+    pill.classList.add('show');
+    clearTimeout(autosaveHideTimer);
+    autosaveHideTimer = setTimeout(()=> pill.classList.remove('show'), 1800);
+  }
+  function loadDraft(){
+    let raw;
+    try{ raw = localStorage.getItem(STORAGE_KEY); }catch(e){ return; }
+    if(!raw) return;
+    let s;
+    try{ s = JSON.parse(raw); }catch(e){ return; }
+    if(!s) return;
+    $('bizName').value = s.bizName||''; $('bizDetails').value = s.bizDetails||'';
+    $('clientName').value = s.clientName||''; $('clientDetails').value = s.clientDetails||'';
+    $('invNum').value = s.invNum||'INV-0001';
+    $('currency').value = s.currency||'$';
+    $('customCurrency').value = s.customCurrency||'';
+    $('customCurrency').style.display = s.currency==='custom' ? 'block' : 'none';
+    $('issueDate').value = s.issueDate||''; $('dueDate').value = s.dueDate||'';
+    $('taxRate').value = s.taxRate||0; $('notes').value = s.notes||'';
+    if(Array.isArray(s.items) && s.items.length) items = s.items;
+    if(s.logoDataUrl) setLogo(s.logoDataUrl);
+    if(s.accentId){ const found = ACCENTS.find(a=>a.id===s.accentId); if(found) accent = found; }
+    showAutosave('Draft restored');
+  }
+
+  /* ---------- toast ---------- */
+  let toastTimer = null;
+  function showToast(text){
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> t.classList.remove('show'), 2600);
+  }
+
+  /* ============================================================
+     AUTH — Supabase email/password
+     ============================================================ */
+  function openAuthModal(mode){
+    authMode = mode;
+    $('authOverlay').classList.add('show');
+    $('authError').classList.remove('show');
+    $('authTitle').textContent = mode === 'login' ? 'Log in' : 'Create your account';
+    $('authSubmitBtn').textContent = mode === 'login' ? 'Log in' : 'Sign up';
+    $('authToggleCopy').textContent = mode === 'login' ? "Don't have an account?" : 'Already have an account?';
+    $('authToggleBtn').textContent = mode === 'login' ? 'Sign up' : 'Log in';
+  }
+  function closeAuthModal(){ $('authOverlay').classList.remove('show'); }
+
+  $('loginBtn').addEventListener('click', ()=>{
+    if(session){ signOut(); } else { openAuthModal('login'); }
+  });
+  $('authCloseBtn').addEventListener('click', closeAuthModal);
+  $('authOverlay').addEventListener('click', (e)=>{ if(e.target.id==='authOverlay') closeAuthModal(); });
+  $('authToggleBtn').addEventListener('click', ()=> openAuthModal(authMode === 'login' ? 'signup' : 'login'));
+
+  $('authSubmitBtn').addEventListener('click', async ()=>{
+    if(!supabase){ showAuthError('Backend not configured yet — set SUPABASE_URL / SUPABASE_ANON_KEY.'); return; }
+    const email = $('authEmail').value.trim();
+    const password = $('authPassword').value;
+    if(!email || !password){ showAuthError('Enter an email and password.'); return; }
+
+    $('authSubmitBtn').disabled = true;
+    try{
+      const { data, error } = authMode === 'login'
+        ? await supabase.auth.signInWithPassword({ email, password })
+        : await supabase.auth.signUp({ email, password });
+      if(error) throw error;
+      if(authMode === 'signup' && !data.session){
+        showAuthError('Check your email to confirm your account, then log in.');
+        $('authSubmitBtn').disabled = false;
+        return;
+      }
+      closeAuthModal();
+      showToast(authMode === 'login' ? 'Logged in' : 'Account created');
+    } catch(err){
+      showAuthError(err.message || 'Something went wrong.');
+    } finally {
+      $('authSubmitBtn').disabled = false;
+    }
+  });
+  function showAuthError(msg){
+    const el = $('authError');
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+
+  async function signOut(){
+    if(supabase) await supabase.auth.signOut();
+    session = null; isPro = false; savedClients = []; currentInvoiceId = null;
+    renderAuthArea();
+    renderProUI();
+  }
+
+  function renderAuthArea(){
+    const area = $('authArea');
+    if(session){
+      area.innerHTML = `<span class="auth-user">${isPro ? '<span class="pro-badge">PRO</span>' : ''}${escapeHtml(session.user.email)}</span><button type="button" class="auth-btn" id="loginBtn">Log out</button>`;
+    } else {
+      area.innerHTML = `<button type="button" class="auth-btn" id="loginBtn">Log in</button>`;
+    }
+    // re-bind since innerHTML replaced the button
+    $('loginBtn').addEventListener('click', ()=>{ if(session) signOut(); else openAuthModal('login'); });
+  }
+
+  function renderProUI(){
+    $('upgradeBanner').style.display = (session && !isPro) ? 'block' : 'none';
+    $('proToolbar').style.display = (session && isPro) ? 'block' : 'none';
+  }
+
+  /* ============================================================
+     PRO DATA — profile, clients, invoices (Supabase)
+     ============================================================ */
+  async function authedFetch(path, opts={}){
+    const token = session && session.access_token;
+    return fetch(`${BACKEND_URL}${path}`, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opts.headers||{}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    });
+  }
+
+  async function refreshProStatus(){
+    if(!session) { isPro = false; return; }
+    try{
+      const r = await authedFetch('/api/me/pro-status');
+      const data = await r.json();
+      isPro = !!data.isPro;
+    } catch(e){ isPro = false; }
+  }
+
+  async function loadProfile(){
+    if(!supabase || !session) return;
+    const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+    if(!data) return;
+    if(data.business_name) $('bizName').value = data.business_name;
+    if(data.business_details) $('bizDetails').value = data.business_details;
+    if(data.default_currency){
+      if(PRESET_CURRENCIES.includes(data.default_currency)){
+        $('currency').value = data.default_currency;
+        $('customCurrency').style.display = 'none';
+      } else {
+        $('currency').value = 'custom';
+        $('customCurrency').value = data.default_currency;
+        $('customCurrency').style.display = 'block';
+      }
+    }
+    if(data.default_tax_rate) $('taxRate').value = data.default_tax_rate;
+    if(data.logo_url) setLogo(data.logo_url);
+    if(data.accent_color){ const found = ACCENTS.find(a=>a.id===data.accent_color); if(found){ accent = found; renderSwatches(); applyAccent(); } }
+  }
+
+  let profileSyncTimer = null;
+  function queueProfileSync(){
+    clearTimeout(profileSyncTimer);
+    profileSyncTimer = setTimeout(syncProfile, 700);
+  }
+  async function syncProfile(){
+    if(!supabase || !session || !isPro) return;
+    await supabase.from('profiles').upsert({
+      id: session.user.id,
+      business_name: $('bizName').value,
+      business_details: $('bizDetails').value,
+      default_currency: currentSymbol(),
+      default_tax_rate: parseFloat($('taxRate').value)||0,
+      accent_color: accent.id,
+      // Note: logo is kept as a data URL in local drafts; for Pro, upload it
+      // to Supabase Storage and store the resulting public URL here instead
+      // of the raw data URL if you want it to sync across devices.
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async function loadClients(){
+    if(!supabase || !session) return;
+    const { data } = await supabase.from('clients').select('*').eq('user_id', session.user.id).order('name');
+    savedClients = data || [];
+    const picker = $('clientPicker');
+    picker.innerHTML = '<option value="">— New client —</option>' +
+      savedClients.map(c=> `<option value="${c.id}">${escapeAttr(c.name)}</option>`).join('');
+  }
+  $('clientPicker').addEventListener('change', ()=>{
+    const c = savedClients.find(c=> c.id === $('clientPicker').value);
+    if(c){ $('clientName').value = c.name; $('clientDetails').value = c.details || ''; }
+    else { $('clientName').value = ''; $('clientDetails').value = ''; }
+    updatePreview(); queueSave();
+  });
+
+  $('isRecurring').addEventListener('change', ()=>{
+    $('recurrenceInterval').style.display = $('isRecurring').checked ? 'block' : 'none';
+  });
+
+  $('saveInvoiceBtn').addEventListener('click', saveInvoiceToSupabase);
+  async function saveInvoiceToSupabase(){
+    if(!supabase || !session || !isPro) return;
+    const btn = $('saveInvoiceBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try{
+      // Upsert the client first so the invoice can reference it.
+      let clientId = $('clientPicker').value || null;
+      const clientName = $('clientName').value.trim();
+      if(clientName){
+        if(clientId){
+          await supabase.from('clients').update({ name: clientName, details: $('clientDetails').value }).eq('id', clientId);
+        } else {
+          const { data: newClient } = await supabase.from('clients').insert({
+            user_id: session.user.id, name: clientName, details: $('clientDetails').value
+          }).select().single();
+          if(newClient) clientId = newClient.id;
+        }
+      }
+
+      const subtotal = items.reduce((s,it)=> s + (parseFloat(it.qty)||0)*(parseFloat(it.rate)||0), 0);
+      const taxRate = parseFloat($('taxRate').value)||0;
+      const taxAmount = subtotal * (taxRate/100);
+
+      const invoicePayload = {
+        user_id: session.user.id,
+        client_id: clientId,
+        invoice_number: $('invNum').value.trim() || 'INV-0001',
+        currency: currentSymbol(),
+        issue_date: $('issueDate').value || null,
+        due_date: $('dueDate').value || null,
+        tax_rate: taxRate,
+        notes: $('notes').value,
+        accent_color: accent.id,
+        status: $('invStatus').value,
+        subtotal, tax_amount: taxAmount, total: subtotal + taxAmount,
+        is_recurring: $('isRecurring').checked,
+        recurrence_interval: $('isRecurring').checked ? $('recurrenceInterval').value : null,
+        updated_at: new Date().toISOString()
+      };
+
+      let invoiceId = currentInvoiceId;
+      if(invoiceId){
+        await supabase.from('invoices').update(invoicePayload).eq('id', invoiceId);
+        await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
+      } else {
+        const { data: newInvoice, error } = await supabase.from('invoices').insert(invoicePayload).select().single();
+        if(error) throw error;
+        invoiceId = newInvoice.id;
+        currentInvoiceId = invoiceId;
+      }
+
+      const itemRows = items
+        .filter(it=> it.desc.trim() || (parseFloat(it.rate)||0) > 0)
+        .map((it,i)=> ({ invoice_id: invoiceId, description: it.desc, qty: it.qty, rate: it.rate, position: i }));
+      if(itemRows.length) await supabase.from('invoice_items').insert(itemRows);
+
+      showToast('Invoice saved');
+      loadClients();
+    } catch(err){
+      console.error(err);
+      showToast('Could not save invoice');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save invoice';
+    }
+  }
+
+  /* ---------- invoice history ---------- */
+  $('openHistoryBtn').addEventListener('click', ()=>{ $('historyOverlay').classList.add('show'); loadInvoiceHistory(); });
+  $('historyCloseBtn').addEventListener('click', ()=> $('historyOverlay').classList.remove('show'));
+  $('historyOverlay').addEventListener('click', (e)=>{ if(e.target.id==='historyOverlay') $('historyOverlay').classList.remove('show'); });
+
+  async function loadInvoiceHistory(){
+    const list = $('historyList');
+    list.innerHTML = '<div class="history-empty">Loading…</div>';
+    const { data, error } = await supabase
+      .from('invoices').select('*, clients(name)')
+      .eq('user_id', session.user.id)
+      .order('updated_at', { ascending:false });
+    if(error || !data || !data.length){
+      list.innerHTML = '<div class="history-empty">No saved invoices yet — save one to see it here.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    data.forEach(inv=>{
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.innerHTML = `
+        <div class="hr-main">
+          <div class="hr-num">${escapeHtml(inv.invoice_number)}</div>
+          <div class="hr-sub">${escapeHtml((inv.clients && inv.clients.name) || 'No client')} · ${money(inv.total||0, inv.currency||'$')}</div>
+        </div>
+        <span class="history-status ${inv.status}">${inv.status}</span>
+      `;
+      row.addEventListener('click', ()=> loadInvoiceIntoEditor(inv.id));
+      list.appendChild(row);
+    });
+  }
+
+  async function loadInvoiceIntoEditor(invoiceId){
+    const { data: inv } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
+    const { data: invItems } = await supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('position');
+    if(!inv) return;
+
+    currentInvoiceId = inv.id;
+    $('invNum').value = inv.invoice_number || 'INV-0001';
+
+    if(inv.currency && PRESET_CURRENCIES.includes(inv.currency)){
+      $('currency').value = inv.currency;
+      $('customCurrency').value = '';
+      $('customCurrency').style.display = 'none';
+    } else if(inv.currency){
+      $('currency').value = 'custom';
+      $('customCurrency').value = inv.currency;
+      $('customCurrency').style.display = 'block';
+    } else {
+      $('currency').value = '$';
+      $('customCurrency').style.display = 'none';
+    }
+
+    $('issueDate').value = inv.issue_date || '';
+    $('dueDate').value = inv.due_date || '';
+    $('taxRate').value = inv.tax_rate || 0;
+    $('notes').value = inv.notes || '';
+    $('invStatus').value = inv.status || 'draft';
+    $('isRecurring').checked = !!inv.is_recurring;
+    $('recurrenceInterval').style.display = inv.is_recurring ? 'block' : 'none';
+    if(inv.recurrence_interval) $('recurrenceInterval').value = inv.recurrence_interval;
+    if(inv.accent_color){ const found = ACCENTS.find(a=>a.id===inv.accent_color); if(found){ accent = found; renderSwatches(); applyAccent(); } }
+
+    if(inv.client_id){
+      $('clientPicker').value = inv.client_id;
+      const c = savedClients.find(c=> c.id === inv.client_id);
+      if(c){ $('clientName').value = c.name; $('clientDetails').value = c.details || ''; }
+    } else {
+      $('clientPicker').value = '';
+    }
+
+    items = (invItems && invItems.length) ? invItems.map(it=> ({desc: it.description, qty: it.qty, rate: it.rate})) : [{desc:'', qty:1, rate:0}];
+    renderItemRows();
+    updatePreview();
+    $('historyOverlay').classList.remove('show');
+    showToast('Invoice loaded');
+  }
+
+  /* ============================================================
+     UPGRADE — Paystack checkout via the backend
+     ============================================================ */
+  async function startUpgrade(plan){
+    if(!session){ openAuthModal('login'); return; }
+    try{
+      const r = await authedFetch('/api/paystack/initialize', {
+        method: 'POST', body: JSON.stringify({ plan })
+      });
+      const data = await r.json();
+      if(data.authorization_url){ window.location.href = data.authorization_url; }
+      else { showToast(data.error || 'Could not start checkout'); }
+    } catch(e){
+      showToast('Could not reach the server');
+    }
+  }
+  $('upgradeMonthlyBtn').addEventListener('click', ()=> startUpgrade('monthly'));
+  $('upgradeLifetimeBtn').addEventListener('click', ()=> startUpgrade('lifetime'));
+
+  /* ---------- react to auth state changes ---------- */
+  async function onSessionReady(){
+    renderAuthArea();
+    if(session){
+      await refreshProStatus();
+      renderAuthArea();
+      renderProUI();
+      if(isPro){
+        await loadProfile();
+        await loadClients();
+        updatePreview();
+      }
+    } else {
+      renderProUI();
+    }
+  }
+
+  if(supabase){
+    supabase.auth.getSession().then(({ data })=>{ session = data.session; onSessionReady(); });
+    supabase.auth.onAuthStateChange((_event, newSession)=>{ session = newSession; onSessionReady(); });
+  }
+
+  // If we've just come back from a Paystack redirect, re-check Pro status.
+  if(location.search.includes('upgrade=success')){
+    setTimeout(async ()=>{ await refreshProStatus(); renderAuthArea(); renderProUI(); showToast('Welcome to Pro'); }, 1200);
+  }
+
+  /* ---------- init ---------- */
+  const today = new Date();
+  const due = new Date(); due.setDate(due.getDate()+14);
+  const fmtInput = d => d.toISOString().slice(0,10);
+  $('issueDate').value = fmtInput(today);
+  $('dueDate').value = fmtInput(due);
+
+  renderSwatches();
+  loadDraft();
+  applyAccent();
+  renderItemRows();
+  updatePreview();
+  renderAuthArea();
+  renderProUI();
+
+  /* ---------- PDF generation ---------- */
+  function generatePdf(){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({unit:'pt', format:'a4'});
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 50;
+    let y = 56;
+    const symbol = currentSymbol();
+    const ink = '#1E2A38', soft = '#57666B';
+    const acc = accent.main, accDark = accent.dark;
+
+    if(logoDataUrl){
+      try{ doc.addImage(logoDataUrl, marginX, y-14, 0, 34, undefined, 'FAST'); }catch(e){}
+    }
+
+    const bizNameVal = $('bizName').value.trim() || 'Your business name';
+    const bizDetailsVal = $('bizDetails').value.trim();
+
+    let leftY = logoDataUrl ? y+34 : y;
+    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(ink);
+    doc.text(bizNameVal, marginX, leftY);
+    leftY += 16;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(soft);
+    bizDetailsVal.split('\n').filter(Boolean).forEach(line=>{ doc.text(line, marginX, leftY); leftY += 12; });
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.setTextColor(accDark);
+    doc.text('INVOICE', pageW-marginX, y, {align:'right'});
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text($('invNum').value.trim() || 'INV-0001', pageW-marginX, y+16, {align:'right'});
+
+    let headBottom = Math.max(leftY+6, y+30);
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(marginX, headBottom, pageW-marginX, headBottom);
+
+    y = headBottom + 26;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text('BILLED TO', marginX, y);
+    doc.text('ISSUED', pageW-marginX-160, y);
+    doc.text('DUE', pageW-marginX-70, y);
+
+    doc.setFontSize(11); doc.setTextColor(ink);
+    doc.text($('clientName').value.trim() || 'Client name', marginX, y+15);
+    doc.setFontSize(9); doc.setTextColor(soft);
+    let clY = y+29;
+    ($('clientDetails').value.trim().split('\n').filter(Boolean)).forEach(line=>{ doc.text(line, marginX, clY); clY += 11; });
+
+    doc.setFontSize(10); doc.setTextColor(ink);
+    doc.text(fmtDate($('issueDate').value), pageW-marginX-160, y+15);
+    doc.text(fmtDate($('dueDate').value), pageW-marginX-70, y+15);
+
+    y = Math.max(clY, y+30) + 22;
+
+    const col = { desc:marginX, qty:pageW-marginX-160, rate:pageW-marginX-100, amt:pageW-marginX };
+    doc.setDrawColor(ink); doc.setLineWidth(1);
+    doc.line(marginX, y, pageW-marginX, y);
+    y += 14;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text('DESCRIPTION', col.desc, y);
+    doc.text('QTY', col.qty, y, {align:'right'});
+    doc.text('RATE', col.rate, y, {align:'right'});
+    doc.text('AMOUNT', col.amt, y, {align:'right'});
+    y += 8;
+    doc.setDrawColor('#C7D0C2'); doc.setLineWidth(0.75);
+    doc.line(marginX, y, pageW-marginX, y);
+    y += 16;
+
+    let subtotal = 0;
+    doc.setFontSize(10); doc.setTextColor(ink);
+    items.forEach(item=>{
+      const qty = parseFloat(item.qty)||0;
+      const rate = parseFloat(item.rate)||0;
+      const amount = qty*rate;
+      subtotal += amount;
+      const descLines = doc.splitTextToSize(item.desc || '—', col.qty-col.desc-20);
+      doc.text(descLines, col.desc, y);
+      doc.text(String(qty), col.qty, y, {align:'right'});
+      doc.text(money(rate, symbol), col.rate, y, {align:'right'});
+      doc.text(money(amount, symbol), col.amt, y, {align:'right'});
+      y += Math.max(descLines.length*12, 16);
+      doc.setDrawColor('#DCE3D7'); doc.setLineWidth(0.5);
+      doc.line(marginX, y-4, pageW-marginX, y-4);
+    });
+
+    y += 10;
+    const taxRate = parseFloat($('taxRate').value)||0;
+    const taxAmt = subtotal*(taxRate/100);
+    const total = subtotal+taxAmt;
+
+    const totalsX = pageW-marginX-160;
+    doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text('Subtotal', totalsX, y);
+    doc.setTextColor(ink);
+    doc.text(money(subtotal, symbol), pageW-marginX, y, {align:'right'});
+    y += 15;
+
+    if(taxRate>0){
+      doc.setTextColor(soft);
+      doc.text(`Tax (${taxRate}%)`, totalsX, y);
+      doc.setTextColor(ink);
+      doc.text(money(taxAmt, symbol), pageW-marginX, y, {align:'right'});
+      y += 15;
+    }
+
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(totalsX, y, pageW-marginX, y);
+    y += 16;
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(accDark);
+    doc.text('Total due', totalsX, y);
+    doc.text(money(total, symbol), pageW-marginX, y, {align:'right'});
+
+    const notesVal = $('notes').value.trim();
+    if(notesVal){
+      y += 34;
+      doc.setDrawColor('#DCE3D7'); doc.setLineWidth(0.5);
+      doc.line(marginX, y-14, pageW-marginX, y-14);
+      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(soft);
+      doc.text('NOTES', marginX, y);
+      y += 13;
+      doc.setFontSize(9.5);
+      const noteLines = doc.splitTextToSize(notesVal, pageW-marginX*2);
+      doc.text(noteLines, marginX, y);
+    }
+
+    const filenameSafe = ($('invNum').value.trim() || 'invoice').replace(/[^a-z0-9\-_]/gi,'_');
+    doc.save(`${filenameSafe}.pdf`);
+  }
+
+  function handleDownloadClick(btn){
+    btn.classList.add('loading');
+    btn.disabled = true;
+    setTimeout(()=>{
+      try{ generatePdf(); showToast('Invoice downloaded'); }
+      catch(e){ showToast('Something went wrong generating the PDF'); }
+      finally{ btn.classList.remove('loading'); btn.disabled = false; }
+    }, 150);
+  }
+  $('downloadBtn').addEventListener('click', ()=> handleDownloadClick($('downloadBtn')));
+  $('downloadBtnMobile').addEventListener('click', ()=> handleDownloadClick($('downloadBtnMobile')));
+})();
+});
+</script>
 </body>
 </html>
