@@ -720,7 +720,7 @@
 </footer>
 
 <script>
-(function(){
+window.addEventListener('DOMContentLoaded', function(){(function(){
   const $ = id => document.getElementById(id);
   document.getElementById('year').textContent = new Date().getFullYear();
 
@@ -1509,6 +1509,7 @@
   $('downloadBtn').addEventListener('click', ()=> handleDownloadClick($('downloadBtn')));
   $('downloadBtnMobile').addEventListener('click', ()=> handleDownloadClick($('downloadBtnMobile')));
 })();
+ });
 </script>
 </body>
 </html>
