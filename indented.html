@@ -1,0 +1,1695 @@
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+
+/**
+ * ledgernote — Invoice Generator
+ * React + Tailwind rebuild of the original vanilla HTML/CSS/JS page.
+ *
+ * External libraries (jsPDF, Supabase) are not part of this sandbox's
+ * import allowlist, so they're loaded from CDN at runtime — the same
+ * approach the original page used with <script defer> tags.
+ *
+ * Fill in SUPABASE_URL / SUPABASE_ANON_KEY / BACKEND_URL below before
+ * deploying. The anon key is safe to expose client-side by design —
+ * Row Level Security policies are what actually protect your data.
+ */
+
+// ============================================================
+// CONFIG
+// ============================================================
+const SUPABASE_URL = "https://vwbhebmhjfyajbsqiqtd.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3YmhlYm1oamZ5YWpic3FpcXRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMzY4ODcsImV4cCI6MjEwNDYxMjg4N30.6HJXtnTjnDuisg-_mngebkbhyR0tScGQbMaqELWXW8o";
+const BACKEND_URL = "https://ledernoteback.onrender.com";
+
+const STORAGE_KEY = "ledgernote-draft-v1";
+
+const ACCENTS = [
+  { id: "forest", swatch: "bg-emerald-800", ring: "ring-emerald-800", text: "text-emerald-800", border: "border-emerald-800", head: "text-emerald-900" },
+  { id: "brass", swatch: "bg-amber-700", ring: "ring-amber-700", text: "text-amber-700", border: "border-amber-700", head: "text-amber-800" },
+  { id: "navy", swatch: "bg-blue-950", ring: "ring-blue-950", text: "text-blue-950", border: "border-blue-950", head: "text-blue-950" },
+  { id: "plum", swatch: "bg-fuchsia-950", ring: "ring-fuchsia-950", text: "text-fuchsia-950", border: "border-fuchsia-950", head: "text-fuchsia-950" },
+  { id: "slate", swatch: "bg-slate-700", ring: "ring-slate-700", text: "text-slate-700", border: "border-slate-700", head: "text-slate-800" },
+];
+
+const CURRENCIES = [
+  { symbol: "$", label: "USD ($)" },
+  { symbol: "€", label: "EUR (€)" },
+  { symbol: "£", label: "GBP (£)" },
+  { symbol: "₹", label: "INR (₹)" },
+  { symbol: "C$", label: "CAD (C$)" },
+  { symbol: "A$", label: "AUD (A$)" },
+];
+
+// AdSense — shown to free (non-Pro) users before an invoice PDF download.
+// Replace with your real ad slot ID before deploying.
+const ADSENSE_CLIENT = "ca-pub-7906154331589621";
+const ADSENSE_SLOT = "0000000000";
+
+const PAYMENT_METHODS = ["Cash", "Bank transfer", "Card", "PayPal", "Mobile money", "Other"];
+
+// ============================================================
+// SMALL HELPERS
+// ============================================================
+function money(n, symbol) {
+  const num = Number(n) || 0;
+  return symbol + num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+// Same formatting, no currency symbol — used for per-line receipt figures,
+// where only the final total carries the currency.
+function moneyPlain(n) {
+  const num = Number(n) || 0;
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtDate(str) {
+  if (!str) return "—";
+  const d = new Date(str + "T00:00:00");
+  if (isNaN(d)) return str;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[data-src="${src}"]`)) {
+      const check = () => (window.__scriptLoaded__?.[src] ? resolve() : setTimeout(check, 50));
+      check();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.crossOrigin = "anonymous";
+    s.dataset.src = src;
+    s.onload = () => {
+      window.__scriptLoaded__ = { ...(window.__scriptLoaded__ || {}), [src]: true };
+      resolve();
+    };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+export default function InvoiceGenerator() {
+  // ---- form state ----
+  const [bizName, setBizName] = useState("");
+  const [bizDetails, setBizDetails] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [clientDetails, setClientDetails] = useState("");
+  const [invNum, setInvNum] = useState("INV-0001");
+  const [currency, setCurrency] = useState("$");
+  const isCustomCurrency = !CURRENCIES.some((c) => c.symbol === currency);
+  const today = useMemo(() => new Date(), []);
+  const [issueDate, setIssueDate] = useState(today.toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().slice(0, 10);
+  });
+  const [taxRate, setTaxRate] = useState(0);
+  const [notes, setNotes] = useState("");
+  const [items, setItems] = useState([
+    { desc: "", qty: 1, rate: 0 },
+    { desc: "", qty: 1, rate: 0 },
+  ]);
+  const [logoDataUrl, setLogoDataUrl] = useState(null);
+  const [accentId, setAccentId] = useState("forest");
+  const accent = ACCENTS.find((a) => a.id === accentId) || ACCENTS[0];
+
+  // ---- UI state ----
+  const [mobileMode, setMobileMode] = useState("edit"); // 'edit' | 'preview'
+  const [dragOver, setDragOver] = useState(false);
+  const [autosaveText, setAutosaveText] = useState("");
+  const [autosaveShow, setAutosaveShow] = useState(false);
+  const [toast, setToast] = useState({ text: "", show: false });
+  const [downloading, setDownloading] = useState(false);
+  const [invoiceSharing, setInvoiceSharing] = useState(null); // 'email' | 'whatsapp' | null
+
+  // ---- auth / pro state ----
+  const [supabase, setSupabase] = useState(null);
+  const [libsReady, setLibsReady] = useState(false);
+  const [session, setSession] = useState(null);
+  const [isPro, setIsPro] = useState(false);
+  const [savedClients, setSavedClients] = useState([]);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [currentInvoiceId, setCurrentInvoiceId] = useState(null);
+  const [invStatus, setInvStatus] = useState("draft");
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceInterval, setRecurrenceInterval] = useState("monthly");
+  const [savingInvoice, setSavingInvoice] = useState(false);
+
+  // ---- modal state ----
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState(null); // null = loading
+
+  // ---- receipt state (Pro) ----
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptNum, setReceiptNum] = useState("");
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paymentMethod, setPaymentMethod] = useState("Bank transfer");
+  const [receiptDownloading, setReceiptDownloading] = useState(false);
+  const [receiptSharing, setReceiptSharing] = useState(null); // 'email' | 'whatsapp' | null
+
+  // ---- free-download ad gate ----
+  const [downloadGateOpen, setDownloadGateOpen] = useState(false);
+
+  // Any modal open (login/signup, history, receipt, ad gate) locks the
+  // background page so it doesn't scroll behind the overlay.
+  useEffect(() => {
+    const anyModalOpen = authOpen || historyOpen || receiptOpen || downloadGateOpen;
+    const prevOverflow = document.body.style.overflow;
+    if (anyModalOpen) document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [authOpen, historyOpen, receiptOpen, downloadGateOpen]);
+
+  const fileInputRef = useRef(null);
+  const saveTimer = useRef(null);
+  const toastTimer = useRef(null);
+  const autosaveHideTimer = useRef(null);
+  const profileSyncTimer = useRef(null);
+
+  // ---- load external libs (jsPDF + Supabase) ----
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
+      loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"),
+    ]).then(() => {
+      if (cancelled) return;
+      if (window.supabase && SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR-PROJECT")) {
+        setSupabase(window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
+      }
+      setLibsReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---- restore draft from localStorage on mount ----
+  useEffect(() => {
+    let raw;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+    } catch (e) {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const s = JSON.parse(raw);
+      if (!s) return;
+      setBizName(s.bizName || "");
+      setBizDetails(s.bizDetails || "");
+      setClientName(s.clientName || "");
+      setClientDetails(s.clientDetails || "");
+      setInvNum(s.invNum || "INV-0001");
+      setCurrency(s.currency || "$");
+      if (s.issueDate) setIssueDate(s.issueDate);
+      if (s.dueDate) setDueDate(s.dueDate);
+      setTaxRate(s.taxRate || 0);
+      setNotes(s.notes || "");
+      if (Array.isArray(s.items) && s.items.length) setItems(s.items);
+      if (s.logoDataUrl) setLogoDataUrl(s.logoDataUrl);
+      if (s.accentId && ACCENTS.some((a) => a.id === s.accentId)) setAccentId(s.accentId);
+      showAutosave("Draft restored");
+    } catch (e) {
+      /* ignore corrupt draft */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function showAutosave(text) {
+    setAutosaveText(text);
+    setAutosaveShow(true);
+    clearTimeout(autosaveHideTimer.current);
+    autosaveHideTimer.current = setTimeout(() => setAutosaveShow(false), 1800);
+  }
+  function showToast(text) {
+    setToast({ text, show: true });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast((t) => ({ ...t, show: false })), 2600);
+  }
+
+  // ---- queue autosave whenever form state changes ----
+  const collectState = useCallback(
+    () => ({
+      bizName, bizDetails, clientName, clientDetails, invNum, currency,
+      issueDate, dueDate, taxRate, notes, items, logoDataUrl, accentId,
+    }),
+    [bizName, bizDetails, clientName, clientDetails, invNum, currency, issueDate, dueDate, taxRate, notes, items, logoDataUrl, accentId]
+  );
+
+  useEffect(() => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(collectState()));
+        showAutosave("Draft saved");
+      } catch (e) {
+        /* storage unavailable */
+      }
+      if (isPro) queueProfileSync();
+    }, 500);
+    return () => clearTimeout(saveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectState]);
+
+  // ============================================================
+  // AUTH
+  // ============================================================
+  function openAuthModal(mode) {
+    setAuthMode(mode);
+    setAuthError("");
+    setAuthOpen(true);
+  }
+
+  async function handleAuthSubmit() {
+    if (!supabase) {
+      setAuthError("Backend not configured yet — set SUPABASE_URL / SUPABASE_ANON_KEY.");
+      return;
+    }
+    if (!authEmail.trim() || !authPassword) {
+      setAuthError("Enter an email and password.");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const { data, error } =
+        authMode === "login"
+          ? await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword })
+          : await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword });
+      if (error) throw error;
+      if (authMode === "signup" && !data.session) {
+        setAuthError("Check your email to confirm your account, then log in.");
+        setAuthBusy(false);
+        return;
+      }
+      setAuthOpen(false);
+      setAuthEmail("");
+      setAuthPassword("");
+      showToast(authMode === "login" ? "Logged in" : "Account created");
+    } catch (err) {
+      setAuthError(err.message || "Something went wrong.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function signOut() {
+    if (supabase) await supabase.auth.signOut();
+    setSession(null);
+    setIsPro(false);
+    setSavedClients([]);
+    setCurrentInvoiceId(null);
+  }
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, newSession) => setSession(newSession));
+    return () => sub?.subscription?.unsubscribe?.();
+  }, [supabase]);
+
+  const authedFetch = useCallback(
+    (path, opts = {}) => {
+      const token = session?.access_token;
+      return fetch(`${BACKEND_URL}${path}`, {
+        ...opts,
+        headers: {
+          "Content-Type": "application/json",
+          ...(opts.headers || {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+    },
+    [session]
+  );
+
+  useEffect(() => {
+    if (!session) {
+      setIsPro(false);
+      return;
+    }
+    (async () => {
+      try {
+        const r = await authedFetch("/api/me/pro-status");
+        const data = await r.json();
+        setIsPro(!!data.isPro);
+      } catch (e) {
+        setIsPro(false);
+      }
+    })();
+  }, [session, authedFetch]);
+
+  // load profile + clients once Pro is confirmed
+  useEffect(() => {
+    if (!supabase || !session || !isPro) return;
+    (async () => {
+      const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+      if (data) {
+        if (data.business_name) setBizName(data.business_name);
+        if (data.business_details) setBizDetails(data.business_details);
+        if (data.default_currency) setCurrency(data.default_currency);
+        if (data.default_tax_rate) setTaxRate(data.default_tax_rate);
+        if (data.logo_url) setLogoDataUrl(data.logo_url);
+        if (data.accent_color && ACCENTS.some((a) => a.id === data.accent_color)) setAccentId(data.accent_color);
+      }
+      await refreshClients();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, session, isPro]);
+
+  async function refreshClients() {
+    if (!supabase || !session) return;
+    const { data } = await supabase.from("clients").select("*").eq("user_id", session.user.id).order("name");
+    setSavedClients(data || []);
+  }
+
+  function queueProfileSync() {
+    clearTimeout(profileSyncTimer.current);
+    profileSyncTimer.current = setTimeout(syncProfile, 700);
+  }
+  async function syncProfile() {
+    if (!supabase || !session || !isPro) return;
+    await supabase.from("profiles").upsert({
+      id: session.user.id,
+      business_name: bizName,
+      business_details: bizDetails,
+      default_currency: currency,
+      default_tax_rate: parseFloat(taxRate) || 0,
+      accent_color: accentId,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  function onClientPick(id) {
+    setSelectedClientId(id);
+    const c = savedClients.find((c) => c.id === id);
+    if (c) {
+      setClientName(c.name);
+      setClientDetails(c.details || "");
+    } else {
+      setClientName("");
+      setClientDetails("");
+    }
+  }
+
+  async function saveInvoiceToSupabase() {
+    if (!supabase || !session || !isPro) return;
+    setSavingInvoice(true);
+    try {
+      let clientId = selectedClientId || null;
+      const trimmedName = clientName.trim();
+      if (trimmedName) {
+        if (clientId) {
+          await supabase.from("clients").update({ name: trimmedName, details: clientDetails }).eq("id", clientId);
+        } else {
+          const { data: newClient } = await supabase
+            .from("clients")
+            .insert({ user_id: session.user.id, name: trimmedName, details: clientDetails })
+            .select()
+            .single();
+          if (newClient) clientId = newClient.id;
+        }
+      }
+
+      const subtotal = items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
+      const tRate = parseFloat(taxRate) || 0;
+      const taxAmount = subtotal * (tRate / 100);
+
+      const payload = {
+        user_id: session.user.id,
+        client_id: clientId,
+        invoice_number: invNum.trim() || "INV-0001",
+        currency,
+        issue_date: issueDate || null,
+        due_date: dueDate || null,
+        tax_rate: tRate,
+        notes,
+        accent_color: accentId,
+        status: invStatus,
+        subtotal, tax_amount: taxAmount, total: subtotal + taxAmount,
+        is_recurring: isRecurring,
+        recurrence_interval: isRecurring ? recurrenceInterval : null,
+        updated_at: new Date().toISOString(),
+      };
+
+      let invoiceId = currentInvoiceId;
+      if (invoiceId) {
+        await supabase.from("invoices").update(payload).eq("id", invoiceId);
+        await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
+      } else {
+        const { data: newInvoice, error } = await supabase.from("invoices").insert(payload).select().single();
+        if (error) throw error;
+        invoiceId = newInvoice.id;
+        setCurrentInvoiceId(invoiceId);
+      }
+
+      const itemRows = items
+        .filter((it) => it.desc.trim() || (parseFloat(it.rate) || 0) > 0)
+        .map((it, i) => ({ invoice_id: invoiceId, description: it.desc, qty: it.qty, rate: it.rate, position: i }));
+      if (itemRows.length) await supabase.from("invoice_items").insert(itemRows);
+
+      showToast("Invoice saved");
+      refreshClients();
+    } catch (err) {
+      console.error(err);
+      showToast("Could not save invoice");
+    } finally {
+      setSavingInvoice(false);
+    }
+  }
+
+  async function openHistory() {
+    setHistoryOpen(true);
+    setHistoryRows(null);
+    const { data, error } = await supabase
+      .from("invoices")
+      .select("*, clients(name)")
+      .eq("user_id", session.user.id)
+      .order("updated_at", { ascending: false });
+    setHistoryRows(error || !data ? [] : data);
+  }
+
+  async function loadInvoiceIntoEditor(invoiceId) {
+    const { data: inv } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
+    const { data: invItems } = await supabase.from("invoice_items").select("*").eq("invoice_id", invoiceId).order("position");
+    if (!inv) return;
+
+    setCurrentInvoiceId(inv.id);
+    setInvNum(inv.invoice_number || "INV-0001");
+    setCurrency(inv.currency || "$");
+    setIssueDate(inv.issue_date || "");
+    setDueDate(inv.due_date || "");
+    setTaxRate(inv.tax_rate || 0);
+    setNotes(inv.notes || "");
+    setInvStatus(inv.status || "draft");
+    setIsRecurring(!!inv.is_recurring);
+    if (inv.recurrence_interval) setRecurrenceInterval(inv.recurrence_interval);
+    if (inv.accent_color && ACCENTS.some((a) => a.id === inv.accent_color)) setAccentId(inv.accent_color);
+
+    if (inv.client_id) {
+      setSelectedClientId(inv.client_id);
+      const c = savedClients.find((c) => c.id === inv.client_id);
+      if (c) {
+        setClientName(c.name);
+        setClientDetails(c.details || "");
+      }
+    } else {
+      setSelectedClientId("");
+    }
+
+    setItems(invItems?.length ? invItems.map((it) => ({ desc: it.description, qty: it.qty, rate: it.rate })) : [{ desc: "", qty: 1, rate: 0 }]);
+    setHistoryOpen(false);
+    showToast("Invoice loaded");
+  }
+
+  // ============================================================
+  // UPGRADE
+  // ============================================================
+  async function startUpgrade(plan) {
+    if (!session) {
+      openAuthModal("login");
+      return;
+    }
+    try {
+      const r = await authedFetch("/api/paystack/initialize", { method: "POST", body: JSON.stringify({ plan }) });
+      const data = await r.json();
+      if (data.authorization_url) window.location.href = data.authorization_url;
+      else showToast(data.error || "Could not start checkout");
+    } catch (e) {
+      showToast("Could not reach the server");
+    }
+  }
+
+  // ============================================================
+  // ITEMS
+  // ============================================================
+  function updateItem(i, field, value) {
+    setItems((prev) => {
+      const next = [...prev];
+      next[i] = { ...next[i], [field]: field === "desc" ? value : parseFloat(value) || 0 };
+      return next;
+    });
+  }
+  function removeItem(i) {
+    setItems((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
+  }
+  function addItem(focusAfter) {
+    setItems((prev) => [...prev, { desc: "", qty: 1, rate: 0 }]);
+    if (focusAfter) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-desc-input="${items.length}"]`);
+        el?.focus();
+      }, 0);
+    }
+  }
+
+  // ============================================================
+  // LOGO
+  // ============================================================
+  function readLogoFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoDataUrl(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  // ============================================================
+  // DERIVED TOTALS
+  // ============================================================
+  const subtotal = items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
+  const taxAmt = subtotal * ((parseFloat(taxRate) || 0) / 100);
+  const total = subtotal + taxAmt;
+
+  const missing = [];
+  if (!bizName.trim()) missing.push("your business name");
+  if (!clientName.trim()) missing.push("a client name");
+  if (!items.some((it) => it.desc.trim() && (parseFloat(it.rate) || 0) > 0)) missing.push("at least one line item");
+  if (!dueDate) missing.push("a due date");
+
+  function resetInvoice() {
+    if (!window.confirm("Start a new invoice? This clears everything currently in the form.")) return;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {}
+    setCurrentInvoiceId(null);
+    setInvStatus("draft");
+    setIsRecurring(false);
+    window.location.reload();
+  }
+
+  // ============================================================
+  // PDF GENERATION
+  // ============================================================
+  // Builds (but doesn't save) the invoice PDF — reused by both the
+  // direct download and the share-via-email/WhatsApp flows.
+  function buildInvoiceDoc() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 50;
+    let y = 56;
+    const ink = "#1E2A38", soft = "#57666B";
+    const accHexMap = { forest: "#1F4038", brass: "#7C5B27", navy: "#1E2A46", plum: "#4A2739", slate: "#2E383D" };
+    const accDark = accHexMap[accentId] || accHexMap.forest;
+
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, marginX, y - 14, 0, 34, undefined, "FAST"); } catch (e) {}
+    }
+
+    let leftY = logoDataUrl ? y + 34 : y;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(ink);
+    doc.text(bizName.trim() || "Your business name", marginX, leftY);
+    leftY += 16;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(soft);
+    bizDetails.trim().split("\n").filter(Boolean).forEach((line) => { doc.text(line, marginX, leftY); leftY += 12; });
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.setTextColor(accDark);
+    doc.text("INVOICE", pageW - marginX, y, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text(invNum.trim() || "INV-0001", pageW - marginX, y + 16, { align: "right" });
+
+    const headBottom = Math.max(leftY + 6, y + 30);
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(marginX, headBottom, pageW - marginX, headBottom);
+
+    y = headBottom + 26;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text("BILLED TO", marginX, y);
+    doc.text("ISSUED", pageW - marginX - 160, y);
+    doc.text("DUE", pageW - marginX - 70, y);
+
+    doc.setFontSize(11); doc.setTextColor(ink);
+    doc.text(clientName.trim() || "Client name", marginX, y + 15);
+    doc.setFontSize(9); doc.setTextColor(soft);
+    let clY = y + 29;
+    clientDetails.trim().split("\n").filter(Boolean).forEach((line) => { doc.text(line, marginX, clY); clY += 11; });
+
+    doc.setFontSize(10); doc.setTextColor(ink);
+    doc.text(fmtDate(issueDate), pageW - marginX - 160, y + 15);
+    doc.text(fmtDate(dueDate), pageW - marginX - 70, y + 15);
+
+    y = Math.max(clY, y + 30) + 22;
+
+    const col = { desc: marginX, qty: pageW - marginX - 160, rate: pageW - marginX - 100, amt: pageW - marginX };
+    doc.setDrawColor(ink); doc.setLineWidth(1);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 14;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text("DESCRIPTION", col.desc, y);
+    doc.text("QTY", col.qty, y, { align: "right" });
+    doc.text("RATE", col.rate, y, { align: "right" });
+    doc.text("AMOUNT", col.amt, y, { align: "right" });
+    y += 8;
+    doc.setDrawColor("#C7D0C2"); doc.setLineWidth(0.75);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 16;
+
+    doc.setFontSize(10); doc.setTextColor(ink);
+    items.forEach((item) => {
+      const qty = parseFloat(item.qty) || 0;
+      const rate = parseFloat(item.rate) || 0;
+      const amount = qty * rate;
+      const descLines = doc.splitTextToSize(item.desc || "—", col.qty - col.desc - 20);
+      doc.text(descLines, col.desc, y);
+      doc.text(String(qty), col.qty, y, { align: "right" });
+      doc.text(money(rate, currency), col.rate, y, { align: "right" });
+      doc.text(money(amount, currency), col.amt, y, { align: "right" });
+      y += Math.max(descLines.length * 12, 16);
+      doc.setDrawColor("#DCE3D7"); doc.setLineWidth(0.5);
+      doc.line(marginX, y - 4, pageW - marginX, y - 4);
+    });
+
+    y += 10;
+    const totalsX = pageW - marginX - 160;
+    doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text("Subtotal", totalsX, y);
+    doc.setTextColor(ink);
+    doc.text(money(subtotal, currency), pageW - marginX, y, { align: "right" });
+    y += 15;
+
+    const tRate = parseFloat(taxRate) || 0;
+    if (tRate > 0) {
+      doc.setTextColor(soft);
+      doc.text(`Tax (${tRate}%)`, totalsX, y);
+      doc.setTextColor(ink);
+      doc.text(money(taxAmt, currency), pageW - marginX, y, { align: "right" });
+      y += 15;
+    }
+
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(totalsX, y, pageW - marginX, y);
+    y += 16;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(accDark);
+    doc.text("Total due", totalsX, y);
+    doc.text(money(total, currency), pageW - marginX, y, { align: "right" });
+
+    if (notes.trim()) {
+      y += 34;
+      doc.setDrawColor("#DCE3D7"); doc.setLineWidth(0.5);
+      doc.line(marginX, y - 14, pageW - marginX, y - 14);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(soft);
+      doc.text("NOTES", marginX, y);
+      y += 13;
+      doc.setFontSize(9.5);
+      doc.text(doc.splitTextToSize(notes.trim(), pageW - marginX * 2), marginX, y);
+    }
+
+    return doc;
+  }
+
+  function invoiceFilename() {
+    return (invNum.trim() || "invoice").replace(/[^a-z0-9\-_]/gi, "_") + ".pdf";
+  }
+
+  function generatePdf() {
+    buildInvoiceDoc().save(invoiceFilename());
+  }
+
+  function performInvoiceDownload() {
+    setDownloading(true);
+    setTimeout(() => {
+      try {
+        generatePdf();
+        showToast("Invoice downloaded");
+      } catch (e) {
+        showToast("Something went wrong generating the PDF");
+      } finally {
+        setDownloading(false);
+      }
+    }, 150);
+  }
+
+  // Pro-only: share the invoice PDF directly via the Web Share API where
+  // supported (attaches the file to WhatsApp/Mail/etc. in one step), or
+  // fall back to downloading it and opening email/WhatsApp with a message,
+  // since mailto: and wa.me links can't attach a file themselves.
+  async function shareInvoice(via) {
+    if (!isPro) {
+      openAuthModal("login");
+      return;
+    }
+    setInvoiceSharing(via);
+    try {
+      const doc = buildInvoiceDoc();
+      const filename = invoiceFilename();
+      const shareText = `Invoice ${invNum.trim() || ""} from ${bizName.trim() || "us"} — ${money(total, currency)} due ${fmtDate(dueDate)}.`;
+
+      let file = null;
+      try {
+        const blob = doc.output("blob");
+        file = new File([blob], filename, { type: "application/pdf" });
+      } catch (e) {}
+
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Invoice", text: shareText });
+        showToast("Invoice shared");
+      } else {
+        doc.save(filename);
+        if (via === "email") {
+          window.location.href = `mailto:?subject=${encodeURIComponent("Invoice " + (invNum.trim() || ""))}&body=${encodeURIComponent(
+            shareText + "\n\nYour invoice PDF just downloaded — attach it to this email before sending."
+          )}`;
+        } else {
+          window.open(
+            `https://wa.me/?text=${encodeURIComponent(shareText + " (PDF downloaded — attach it to this chat.)")}`,
+            "_blank"
+          );
+        }
+        showToast("Invoice downloaded — attach it in the app that just opened");
+      }
+    } catch (e) {
+      showToast("Could not share the invoice");
+    } finally {
+      setInvoiceSharing(null);
+    }
+  }
+
+  // Free users see a short ad before the download starts; Pro skips straight
+  // to the file — this is one of the concrete reasons to upgrade.
+  function handleDownloadClick() {
+    if (!isPro) {
+      setDownloadGateOpen(true);
+      return;
+    }
+    performInvoiceDownload();
+  }
+  function finalizeGatedDownload() {
+    setDownloadGateOpen(false);
+    performInvoiceDownload();
+  }
+
+  // Load the AdSense script only once the gate is actually shown.
+  useEffect(() => {
+    if (!downloadGateOpen) return;
+    loadScript(`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`).then(() => {
+      try {
+        (window.adsbygoogle = window.adsbygoogle || []).push({});
+      } catch (e) {
+        /* ad blocked or unavailable — the Continue button still works */
+      }
+    });
+  }, [downloadGateOpen]);
+
+  // ============================================================
+  // RECEIPT (Pro)
+  // ============================================================
+  function openReceiptModal() {
+    setReceiptNum((prev) => prev || `RCPT-${invNum.replace(/^INV-?/i, "") || "0001"}`);
+    setReceiptOpen(true);
+  }
+
+  // Builds (but doesn't save) a receipt PDF from the current invoice data.
+  // Per-line figures are plain numbers; only the total carries the currency symbol.
+  function buildReceiptDoc() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 50;
+    let y = 56;
+    const ink = "#1E2A38", soft = "#57666B";
+    const accHexMap = { forest: "#1F4038", brass: "#7C5B27", navy: "#1E2A46", plum: "#4A2739", slate: "#2E383D" };
+    const accDark = accHexMap[accentId] || accHexMap.forest;
+
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, marginX, y - 14, 0, 34, undefined, "FAST"); } catch (e) {}
+    }
+
+    let leftY = logoDataUrl ? y + 34 : y;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(ink);
+    doc.text(bizName.trim() || "Your business name", marginX, leftY);
+    leftY += 16;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(soft);
+    bizDetails.trim().split("\n").filter(Boolean).forEach((line) => { doc.text(line, marginX, leftY); leftY += 12; });
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.setTextColor(accDark);
+    doc.text("RECEIPT", pageW - marginX, y, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text(receiptNum || "RCPT-0001", pageW - marginX, y + 16, { align: "right" });
+
+    const headBottom = Math.max(leftY + 6, y + 30);
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(marginX, headBottom, pageW - marginX, headBottom);
+
+    y = headBottom + 26;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text("RECEIVED FROM", marginX, y);
+    doc.text("PAID ON", pageW - marginX - 160, y);
+    doc.text("METHOD", pageW - marginX - 70, y);
+
+    doc.setFontSize(11); doc.setTextColor(ink);
+    doc.text(clientName.trim() || "Client name", marginX, y + 15);
+    doc.setFontSize(9); doc.setTextColor(soft);
+    let clY = y + 29;
+    clientDetails.trim().split("\n").filter(Boolean).forEach((line) => { doc.text(line, marginX, clY); clY += 11; });
+
+    doc.setFontSize(10); doc.setTextColor(ink);
+    doc.text(fmtDate(paymentDate), pageW - marginX - 160, y + 15);
+    doc.text(paymentMethod, pageW - marginX - 70, y + 15);
+
+    y = Math.max(clY, y + 30) + 22;
+
+    const col = { desc: marginX, qty: pageW - marginX - 160, rate: pageW - marginX - 100, amt: pageW - marginX };
+    doc.setDrawColor(ink); doc.setLineWidth(1);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 14;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(soft);
+    doc.text("DESCRIPTION", col.desc, y);
+    doc.text("QTY", col.qty, y, { align: "right" });
+    doc.text("RATE", col.rate, y, { align: "right" });
+    doc.text("AMOUNT", col.amt, y, { align: "right" });
+    y += 8;
+    doc.setDrawColor("#C7D0C2"); doc.setLineWidth(0.75);
+    doc.line(marginX, y, pageW - marginX, y);
+    y += 16;
+
+    doc.setFontSize(10); doc.setTextColor(ink);
+    items.forEach((item) => {
+      const qty = parseFloat(item.qty) || 0;
+      const rate = parseFloat(item.rate) || 0;
+      const amount = qty * rate;
+      const descLines = doc.splitTextToSize(item.desc || "—", col.qty - col.desc - 20);
+      doc.text(descLines, col.desc, y);
+      doc.text(String(qty), col.qty, y, { align: "right" });
+      // No currency symbol on line figures — only the total below carries it.
+      doc.text(moneyPlain(rate), col.rate, y, { align: "right" });
+      doc.text(moneyPlain(amount), col.amt, y, { align: "right" });
+      y += Math.max(descLines.length * 12, 16);
+      doc.setDrawColor("#DCE3D7"); doc.setLineWidth(0.5);
+      doc.line(marginX, y - 4, pageW - marginX, y - 4);
+    });
+
+    y += 10;
+    const totalsX = pageW - marginX - 160;
+    doc.setFontSize(10); doc.setTextColor(soft);
+    doc.text("Subtotal", totalsX, y);
+    doc.setTextColor(ink);
+    doc.text(money(subtotal, currency), pageW - marginX, y, { align: "right" });
+    y += 15;
+
+    const tRate = parseFloat(taxRate) || 0;
+    if (tRate > 0) {
+      doc.setTextColor(soft);
+      doc.text(`Tax (${tRate}%)`, totalsX, y);
+      doc.setTextColor(ink);
+      doc.text(money(taxAmt, currency), pageW - marginX, y, { align: "right" });
+      y += 15;
+    }
+
+    doc.setDrawColor(ink); doc.setLineWidth(1.2);
+    doc.line(totalsX, y, pageW - marginX, y);
+    y += 16;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(accDark);
+    doc.text("Total paid", totalsX, y);
+    doc.text(money(total, currency), pageW - marginX, y, { align: "right" });
+
+    y += 34;
+    doc.setDrawColor("#DCE3D7"); doc.setLineWidth(0.5);
+    doc.line(marginX, y - 14, pageW - marginX, y - 14);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(soft);
+    doc.text(`Payment received in full. Thank you, ${bizName.trim() || "we appreciate your business"}.`, marginX, y);
+
+    return doc;
+  }
+
+  function downloadReceiptPdf() {
+    setReceiptDownloading(true);
+    setTimeout(() => {
+      try {
+        const doc = buildReceiptDoc();
+        const filenameSafe = (receiptNum || "receipt").replace(/[^a-z0-9\-_]/gi, "_");
+        doc.save(`${filenameSafe}.pdf`);
+        showToast("Receipt downloaded");
+      } catch (e) {
+        showToast("Something went wrong generating the receipt");
+      } finally {
+        setReceiptDownloading(false);
+      }
+    }, 150);
+  }
+
+  // Shares the receipt PDF directly where the browser supports the Web
+  // Share API with files (most mobile browsers). Otherwise falls back to
+  // downloading the PDF and opening email/WhatsApp with a message, since
+  // neither mailto: nor wa.me links can attach a file on their own.
+  async function shareReceipt(via) {
+    setReceiptSharing(via);
+    try {
+      const doc = buildReceiptDoc();
+      const filenameSafe = (receiptNum || "receipt").replace(/[^a-z0-9\-_]/gi, "_") + ".pdf";
+      const shareText = `Receipt ${receiptNum || ""} from ${bizName.trim() || "us"} — ${money(total, currency)} received. Thank you!`;
+
+      let file = null;
+      try {
+        const blob = doc.output("blob");
+        file = new File([blob], filenameSafe, { type: "application/pdf" });
+      } catch (e) {}
+
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Receipt", text: shareText });
+        showToast("Receipt shared");
+      } else {
+        doc.save(filenameSafe);
+        if (via === "email") {
+          window.location.href = `mailto:?subject=${encodeURIComponent("Receipt " + (receiptNum || ""))}&body=${encodeURIComponent(
+            shareText + "\n\nYour receipt PDF just downloaded — attach it to this email before sending."
+          )}`;
+        } else {
+          window.open(
+            `https://wa.me/?text=${encodeURIComponent(shareText + " (PDF downloaded — attach it to this chat.)")}`,
+            "_blank"
+          );
+        }
+        showToast("Receipt downloaded — attach it in the app that just opened");
+      }
+    } catch (e) {
+      showToast("Could not share the receipt");
+    } finally {
+      setReceiptSharing(null);
+    }
+  }
+
+  // ============================================================
+  // SHARED UI PIECES
+  // ============================================================
+  const inputCls =
+    "w-full px-2.5 py-2 text-sm text-slate-800 bg-white border border-stone-300 rounded-sm outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700";
+  const labelCls = "block text-xs text-slate-500 mb-1 mt-3 first:mt-0";
+  const linkBtnCls = "text-xs text-emerald-800 underline underline-offset-2 hover:text-rose-700 bg-transparent border-none cursor-pointer p-0";
+
+  return (
+    <div className="min-h-screen bg-stone-100 text-slate-800" style={{ fontFamily: "'IBM Plex Sans', ui-sans-serif, system-ui" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        html { scroll-behavior: smooth; }
+        .font-serif-display { font-family: 'Source Serif 4', ui-serif, Georgia, serif; }
+        .font-mono-num { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+      `}</style>
+
+      {/* ================= TOP BAR ================= */}
+      <div className="sticky top-0 z-40 flex items-center justify-between px-7 py-3.5 border-b border-stone-300 bg-stone-100">
+        <div className="font-serif-display text-lg font-semibold flex items-baseline gap-0.5">
+          ledger<span className="text-emerald-800">note</span>
+          <small className="font-mono-num text-[10px] text-slate-500 font-normal tracking-wide ml-2 hidden sm:inline">invoice generator</small>
+        </div>
+        <nav className="flex items-center text-sm">
+          <a href="#tool" className="text-slate-500 hover:text-emerald-900 ml-5 hidden md:inline">Invoice tool</a>
+          <a href="#guide-invoicing" className="text-slate-500 hover:text-emerald-900 ml-5 hidden md:inline">Guides</a>
+          <a href="#faq" className="text-slate-500 hover:text-emerald-900 ml-5 hidden md:inline">FAQ</a>
+          <a href="#privacy" className="text-slate-500 hover:text-emerald-900 ml-5 hidden lg:inline">Privacy</a>
+          <a href="#terms" className="text-slate-500 hover:text-emerald-900 ml-5 hidden lg:inline">Terms</a>
+          <span className="ml-5 inline-flex items-center gap-2.5">
+            {session ? (
+              <>
+                <span className="text-xs text-slate-500 inline-flex items-center gap-2">
+                  {isPro && <span className="bg-amber-700 text-white text-[9.5px] font-semibold tracking-wide px-1.5 py-0.5 rounded-sm">PRO</span>}
+                  <span className="hidden sm:inline">{session.user.email}</span>
+                </span>
+                <button onClick={signOut} className="text-xs border border-stone-300 hover:border-emerald-700 rounded-sm px-3 py-1.5 bg-transparent cursor-pointer">
+                  Log out
+                </button>
+              </>
+            ) : (
+              <button onClick={() => openAuthModal("login")} className="text-xs border border-stone-300 hover:border-emerald-700 rounded-sm px-3 py-1.5 bg-transparent cursor-pointer">
+                Log in
+              </button>
+            )}
+          </span>
+        </nav>
+      </div>
+
+      {/* ================= AUTH MODAL ================= */}
+      {authOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/45 p-5" onClick={(e) => e.target === e.currentTarget && setAuthOpen(false)}>
+          <div className="relative bg-white rounded-md p-7 w-full max-w-sm shadow-2xl">
+            <button onClick={() => setAuthOpen(false)} className="absolute top-3.5 right-3.5 text-xl text-slate-400 hover:text-rose-700 bg-transparent border-none cursor-pointer leading-none">×</button>
+            <h3 className="font-serif-display text-lg font-semibold mb-1.5">{authMode === "login" ? "Log in" : "Create your account"}</h3>
+            <p className="text-sm text-slate-500 mb-4">Access your saved clients, invoice history, and Pro features.</p>
+            {authError && <div className="bg-rose-50 text-rose-700 text-xs px-2.5 py-2 rounded-sm mb-1.5">{authError}</div>}
+            <label className={labelCls}>Email</label>
+            <input type="email" className={inputCls} value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} autoComplete="email" />
+            <label className={labelCls}>Password</label>
+            <input type="password" className={inputCls} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} autoComplete="current-password" />
+            <button
+              onClick={handleAuthSubmit}
+              disabled={authBusy}
+              className="w-full mt-4.5 mt-[18px] bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 text-white border-none py-2.5 text-sm font-medium rounded-sm cursor-pointer"
+            >
+              {authBusy ? "Please wait…" : authMode === "login" ? "Log in" : "Sign up"}
+            </button>
+            <p className="text-xs text-slate-500 mt-3.5 text-center">
+              {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
+              <button className={linkBtnCls} onClick={() => { setAuthMode(authMode === "login" ? "signup" : "login"); setAuthError(""); }}>
+                {authMode === "login" ? "Sign up" : "Log in"}
+              </button>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ================= HISTORY MODAL ================= */}
+      {historyOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/45 p-5" onClick={(e) => e.target === e.currentTarget && setHistoryOpen(false)}>
+          <div className="relative bg-white rounded-md p-7 w-full max-w-lg shadow-2xl">
+            <button onClick={() => setHistoryOpen(false)} className="absolute top-3.5 right-3.5 text-xl text-slate-400 hover:text-rose-700 bg-transparent border-none cursor-pointer leading-none">×</button>
+            <h3 className="font-serif-display text-lg font-semibold mb-1.5">Invoice history</h3>
+            <p className="text-sm text-slate-500 mb-3">Click an invoice to load it back into the editor.</p>
+            <div className="max-h-[60vh] overflow-y-auto mt-1.5">
+              {historyRows === null && <div className="text-sm text-slate-500 py-5">Loading…</div>}
+              {historyRows && historyRows.length === 0 && (
+                <div className="text-sm text-slate-500 py-5">No saved invoices yet — save one to see it here.</div>
+              )}
+              {historyRows?.map((inv) => (
+                <div key={inv.id} onClick={() => loadInvoiceIntoEditor(inv.id)} className="flex items-center justify-between gap-2.5 py-3 border-b border-stone-200 cursor-pointer hover:bg-stone-100 px-1">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{inv.invoice_number}</div>
+                    <div className="text-xs text-slate-500">{inv.clients?.name || "No client"} · {money(inv.total || 0, inv.currency || "$")}</div>
+                  </div>
+                  <span className={`text-[10.5px] font-semibold tracking-wide uppercase px-2 py-0.5 rounded-full whitespace-nowrap flex-none ${
+                    inv.status === "paid" ? "bg-emerald-100 text-emerald-900" :
+                    inv.status === "sent" ? "bg-blue-100 text-blue-950" :
+                    inv.status === "overdue" ? "bg-rose-100 text-rose-700" :
+                    "bg-stone-200 text-slate-500"
+                  }`}>{inv.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= FREE DOWNLOAD AD GATE ================= */}
+      {downloadGateOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/45 p-5" onClick={(e) => e.target === e.currentTarget && setDownloadGateOpen(false)}>
+          <div className="relative bg-white rounded-md p-6 w-full max-w-sm shadow-2xl text-center">
+            <button onClick={() => setDownloadGateOpen(false)} className="absolute top-3.5 right-3.5 text-xl text-slate-400 hover:text-rose-700 bg-transparent border-none cursor-pointer leading-none">×</button>
+            <h3 className="font-serif-display text-lg font-semibold mb-1.5">One more thing</h3>
+            <p className="text-sm text-slate-500 mb-4">Free downloads are supported by a short ad. Pro downloads skip this step every time.</p>
+            <div className="bg-stone-100 border border-stone-300 rounded flex items-center justify-center mb-4 overflow-hidden" style={{ minHeight: 120 }}>
+              <ins
+                className="adsbygoogle"
+                style={{ display: "block", width: "100%", minHeight: "120px" }}
+                data-ad-client={ADSENSE_CLIENT}
+                data-ad-slot={ADSENSE_SLOT}
+                data-ad-format="auto"
+                data-full-width-responsive="true"
+              />
+            </div>
+            <button onClick={finalizeGatedDownload} className="w-full bg-emerald-800 hover:bg-emerald-900 text-white border-none py-2.5 text-sm font-medium rounded-sm cursor-pointer mb-3">
+              Continue to download
+            </button>
+            <p className="text-xs text-slate-500">
+              Want to skip this every time? <button onClick={() => { setDownloadGateOpen(false); openAuthModal("login"); }} className={linkBtnCls}>Go Pro</button>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ================= RECEIPT MODAL (Pro) ================= */}
+      {receiptOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/45 p-5" onClick={(e) => e.target === e.currentTarget && setReceiptOpen(false)}>
+          <div className="relative bg-white rounded-md p-7 w-full max-w-md shadow-2xl">
+            <button onClick={() => setReceiptOpen(false)} className="absolute top-3.5 right-3.5 text-xl text-slate-400 hover:text-rose-700 bg-transparent border-none cursor-pointer leading-none">×</button>
+            <h3 className="font-serif-display text-lg font-semibold mb-1.5">
+              <span className="bg-amber-700 text-white text-[9.5px] font-semibold tracking-wide px-1.5 py-0.5 rounded-sm mr-1.5 align-middle">PRO</span>
+              Receipt
+            </h3>
+            <p className="text-sm text-slate-500 mb-4">Confirms payment for this invoice's client and line items.</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Receipt number</label>
+                <input type="text" className={inputCls} value={receiptNum} onChange={(e) => setReceiptNum(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Payment method</label>
+                <select className={inputCls} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                  {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <label className={labelCls}>Payment date</label>
+            <input type="date" className={inputCls} value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
+
+            <div className="mt-4 border border-stone-200 rounded p-3 text-sm max-h-40 overflow-y-auto">
+              {items.filter((it) => it.desc.trim() || (parseFloat(it.rate) || 0) > 0).map((it, i) => (
+                <div key={i} className="flex justify-between py-1">
+                  <span className="text-slate-600 truncate pr-2">{it.desc || "—"}</span>
+                  <span className="font-mono-num text-slate-500 flex-none">{moneyPlain((parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0))}</span>
+                </div>
+              ))}
+              <div className="flex justify-between pt-2 mt-1 border-t border-stone-200 font-semibold">
+                <span>Total paid</span>
+                <span className="font-mono-num">{money(total, currency)}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={downloadReceiptPdf}
+              disabled={receiptDownloading}
+              className="w-full mt-4 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 text-white border-none py-2.5 text-sm font-medium rounded-sm cursor-pointer"
+            >
+              {receiptDownloading ? "Preparing…" : "Download receipt PDF"}
+            </button>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => shareReceipt("email")}
+                disabled={receiptSharing === "email"}
+                className="flex-1 bg-transparent text-slate-700 border border-stone-300 hover:border-emerald-700 disabled:opacity-60 py-2 text-sm rounded-sm cursor-pointer"
+              >
+                {receiptSharing === "email" ? "Sharing…" : "Share via Email"}
+              </button>
+              <button
+                onClick={() => shareReceipt("whatsapp")}
+                disabled={receiptSharing === "whatsapp"}
+                className="flex-1 bg-transparent text-slate-700 border border-stone-300 hover:border-emerald-700 disabled:opacity-60 py-2 text-sm rounded-sm cursor-pointer"
+              >
+                {receiptSharing === "whatsapp" ? "Sharing…" : "Share via WhatsApp"}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">On phones and supported browsers, sharing attaches the PDF directly. Otherwise it downloads first and opens the app so you can attach it.</p>
+          </div>
+        </div>
+      )}
+
+      {/* ================= TOOL ================= */}
+      <section id="tool" style={{ scrollMarginTop: 64 }}>
+        {/* Sticky within this section only — moved inside so it doesn't stay
+            pinned once the user scrolls past the tool into the guides/FAQ. */}
+        <div className="md:hidden sticky top-[49px] z-30 flex bg-white border-b border-stone-300">
+          {["edit", "preview"].map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setMobileMode(mode)}
+              className={`flex-1 py-3 text-sm border-b-2 bg-transparent cursor-pointer ${
+                mobileMode === mode ? "text-slate-800 border-amber-700 font-medium" : "text-slate-500 border-transparent"
+              }`}
+            >
+              {mode === "edit" ? "Edit details" : "Preview invoice"}
+            </button>
+          ))}
+        </div>
+
+        <div className="max-w-[640px] mx-auto px-7 pt-10 pb-2 text-left">
+          <h1 className="font-serif-display text-[26px] leading-tight">Free invoice generator</h1>
+          <p className="mt-2.5 text-slate-500 text-[14.5px] max-w-[56ch]">
+            Fill in your details on the left and watch a professional invoice build itself on the right. Download it as a PDF when it's ready — no account, no watermark, nothing installed.
+          </p>
+        </div>
+
+        <div className="max-w-[1280px] mx-auto grid md:grid-cols-[minmax(320px,420px)_1fr]">
+          {/* ---------------- FORM PANE ---------------- */}
+          <div className={`px-7 pb-24 pt-6 md:border-r border-stone-300 relative ${mobileMode === "preview" ? "hidden md:block" : ""}`}>
+            {/* Upgrade banner */}
+            {session && !isPro && (
+              <div className="mb-6.5 mb-[26px] pb-5.5 border-b border-stone-200 bg-white border border-stone-300 rounded p-4.5 p-[18px]">
+                <h3 className="text-sm font-semibold mb-1.5">Go Pro</h3>
+                <p className="text-xs text-slate-500 mb-3">Everything free, plus what you need once you're invoicing regularly:</p>
+                <ul className="text-xs text-slate-600 mb-3.5 space-y-1.5">
+                  <li className="flex gap-1.5"><span className="text-emerald-800">✓</span> No ad before your PDF downloads</li>
+                  <li className="flex gap-1.5"><span className="text-emerald-800">✓</span> Share invoices and receipts by email or WhatsApp</li>
+                  <li className="flex gap-1.5"><span className="text-emerald-800">✓</span> Saved clients that auto-fill next time</li>
+                  <li className="flex gap-1.5"><span className="text-emerald-800">✓</span> Full invoice history, synced across devices</li>
+                  <li className="flex gap-1.5"><span className="text-emerald-800">✓</span> Status tracking — draft, sent, paid, overdue</li>
+                  <li className="flex gap-1.5"><span className="text-emerald-800">✓</span> Recurring invoices for repeat clients</li>
+                </ul>
+                <div className="flex gap-2">
+                  <button onClick={() => startUpgrade("monthly")} className="flex-1 bg-emerald-800 hover:opacity-90 text-white border-none py-2 text-sm rounded-sm cursor-pointer">Monthly</button>
+                  <button onClick={() => startUpgrade("lifetime")} className="flex-1 bg-transparent text-emerald-800 border border-emerald-800 py-2 text-sm rounded-sm cursor-pointer">Lifetime</button>
+                </div>
+              </div>
+            )}
+
+            {/* Pro toolbar */}
+            {session && isPro && (
+              <div className="mb-6.5 bg-emerald-50 border border-stone-300 rounded p-4">
+                <div className="flex items-baseline justify-between mb-3.5">
+                  <h3 className="text-sm font-semibold">
+                    <span className="bg-amber-700 text-white text-[9.5px] font-semibold tracking-wide px-1.5 py-0.5 rounded-sm mr-1.5 align-middle">PRO</span>
+                    This invoice
+                  </h3>
+                  <span className="flex gap-3">
+                    <button onClick={openReceiptModal} className={linkBtnCls}>Create receipt</button>
+                    <button onClick={openHistory} className={linkBtnCls}>Invoice history</button>
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Status</label>
+                    <select className={inputCls} value={invStatus} onChange={(e) => setInvStatus(e.target.value)}>
+                      <option value="draft">Draft</option>
+                      <option value="sent">Sent</option>
+                      <option value="paid">Paid</option>
+                      <option value="overdue">Overdue</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Saved client</label>
+                    <select className={inputCls} value={selectedClientId} onChange={(e) => onClientPick(e.target.value)}>
+                      <option value="">— New client —</option>
+                      {savedClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-xs mt-3.5 cursor-pointer">
+                  <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
+                  Repeat this invoice
+                </label>
+                {isRecurring && (
+                  <select className={`${inputCls} mt-2`} value={recurrenceInterval} onChange={(e) => setRecurrenceInterval(e.target.value)}>
+                    <option value="monthly">Monthly</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                )}
+                <button
+                  onClick={saveInvoiceToSupabase}
+                  disabled={savingInvoice}
+                  className="w-full mt-3.5 bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white border-none py-2.5 text-sm font-medium rounded-sm cursor-pointer"
+                >
+                  {savingInvoice ? "Saving…" : "Save invoice"}
+                </button>
+              </div>
+            )}
+
+            {/* Your business */}
+            <div className="mb-6.5 pb-5.5 border-b border-stone-200">
+              <h3 className="text-sm font-semibold mb-3.5">Your business</h3>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); readLogoFile(e.dataTransfer.files?.[0]); }}
+                className={`flex items-center gap-3 p-2.5 border-2 border-dashed rounded-sm bg-white transition-colors ${dragOver ? "border-emerald-700 bg-emerald-50" : "border-stone-300"}`}
+              >
+                {logoDataUrl && <img src={logoDataUrl} alt="" className="w-10.5 h-10.5 w-[42px] h-[42px] border border-stone-300 rounded-sm object-contain bg-white flex-none" />}
+                <div className="text-xs text-slate-500 flex-1">
+                  <strong className="block text-slate-800 text-[12.5px] font-medium">{logoDataUrl ? "Logo added" : "Add a logo"}</strong>
+                  {logoDataUrl ? "Shown at the top of your invoice" : "Drop an image here, or"}
+                </div>
+                <button onClick={() => fileInputRef.current?.click()} className="text-xs text-emerald-800 bg-transparent border border-stone-300 hover:border-emerald-700 px-2.5 py-1.5 rounded-sm cursor-pointer whitespace-nowrap">
+                  Choose file
+                </button>
+                {logoDataUrl && (
+                  <button onClick={() => { setLogoDataUrl(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="text-slate-500 hover:text-rose-700 bg-transparent border-none text-lg cursor-pointer px-1 leading-none">×</button>
+                )}
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => readLogoFile(e.target.files?.[0])} />
+              </div>
+              <label className={labelCls}>Business or your name</label>
+              <input type="text" className={inputCls} value={bizName} onChange={(e) => setBizName(e.target.value)} placeholder="Alex Rivera Design" />
+              <label className={labelCls}>Address, email, phone (one per line)</label>
+              <textarea className={`${inputCls} min-h-[56px] resize-y`} value={bizDetails} onChange={(e) => setBizDetails(e.target.value)} placeholder={"123 Maple St, Austin TX\nalex@rivera.design\n(512) 555-0114"} />
+            </div>
+
+            {/* Bill to */}
+            <div className="mb-6.5 pb-5.5 border-b border-stone-200">
+              <h3 className="text-sm font-semibold mb-3.5">Bill to</h3>
+              <label className={labelCls}>Client name</label>
+              <input type="text" className={inputCls} value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Northwind Traders" />
+              <label className={labelCls}>Client address / email (one per line)</label>
+              <textarea className={`${inputCls} min-h-[56px] resize-y`} value={clientDetails} onChange={(e) => setClientDetails(e.target.value)} placeholder={"400 Commerce Ave\nbilling@northwind.com"} />
+            </div>
+
+            {/* Invoice details */}
+            <div className="mb-6.5 pb-5.5 border-b border-stone-200">
+              <div className="flex items-baseline justify-between mb-3.5">
+                <h3 className="text-sm font-semibold">Invoice details</h3>
+                <button onClick={resetInvoice} className={linkBtnCls}>Start new invoice</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Invoice number</label>
+                  <input type="text" className={inputCls} value={invNum} onChange={(e) => setInvNum(e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Currency</label>
+                  <select
+                    className={inputCls}
+                    value={isCustomCurrency ? "__custom__" : currency}
+                    onChange={(e) => setCurrency(e.target.value === "__custom__" ? "" : e.target.value)}
+                  >
+                    {CURRENCIES.map((c) => <option key={c.symbol} value={c.symbol}>{c.label}</option>)}
+                    <option value="__custom__">Custom…</option>
+                  </select>
+                  {isCustomCurrency && (
+                    <input
+                      type="text"
+                      className={`${inputCls} mt-2`}
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value.slice(0, 5))}
+                      placeholder="e.g. R, ₦, KSh"
+                      maxLength={5}
+                      autoFocus
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div>
+                  <label className={labelCls}>Issue date</label>
+                  <input type="date" className={inputCls} value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Due date</label>
+                  <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                </div>
+              </div>
+              <label className={labelCls}>Accent color</label>
+              <div className="flex gap-2 mt-2">
+                {ACCENTS.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => setAccentId(a.id)}
+                    title={a.id}
+                    aria-label={`Accent color: ${a.id}`}
+                    className={`w-6 h-6 rounded-full cursor-pointer border-2 ${a.swatch} ${accentId === a.id ? "border-slate-800" : "border-transparent"}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Line items */}
+            <div className="mb-6.5 pb-5.5 border-b border-stone-200">
+              <h3 className="text-sm font-semibold mb-3.5">Line items</h3>
+              <div className="grid grid-cols-[1fr_40px_58px_62px_22px] gap-1.5 text-[11px] text-slate-500 pb-1.5">
+                <span>Description</span><span className="text-right">Qty</span><span className="text-right">Rate</span><span className="text-right">Amount</span><span></span>
+              </div>
+              {items.map((item, i) => (
+                <div key={i} className="grid grid-cols-[1fr_40px_58px_62px_22px] gap-1.5 items-center mb-2">
+                  <input data-desc-input={i} type="text" className={`${inputCls} py-1.5 px-1.5 text-[13px]`} value={item.desc} onChange={(e) => updateItem(i, "desc", e.target.value)} placeholder="Design services" />
+                  <input type="number" min="0" step="1" className={`${inputCls} py-1.5 px-1.5 text-[13px]`} value={item.qty} onChange={(e) => updateItem(i, "qty", e.target.value)} />
+                  <input
+                    type="number" min="0" step="0.01" className={`${inputCls} py-1.5 px-1.5 text-[13px]`} value={item.rate}
+                    onChange={(e) => updateItem(i, "rate", e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && i === items.length - 1) { e.preventDefault(); addItem(true); } }}
+                  />
+                  <span className="font-mono-num text-xs text-slate-500 text-right pr-0.5">{money((parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0), currency)}</span>
+                  <button onClick={() => removeItem(i)} className="text-slate-500 hover:text-rose-700 bg-transparent border-none text-base cursor-pointer p-1 leading-none">×</button>
+                </div>
+              ))}
+              <button onClick={() => addItem(false)} className="mt-1.5 w-full border border-dashed border-stone-300 hover:border-emerald-700 text-emerald-800 text-sm py-2 rounded-sm cursor-pointer bg-transparent">
+                + Add line item
+              </button>
+              <div className="text-[11px] text-slate-500 mt-1.5">Tip: press Enter in the last rate field to add a new line.</div>
+              <label className={labelCls}>Tax rate (%, optional)</label>
+              <input type="number" min="0" step="0.1" className={`${inputCls} max-w-[110px]`} value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
+            </div>
+
+            {/* Notes */}
+            <div className="mb-2">
+              <h3 className="text-sm font-semibold mb-3.5">Notes</h3>
+              <label className={labelCls}>Payment terms, thank-you note, etc.</label>
+              <textarea className={`${inputCls} min-h-[56px] resize-y`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Payment due within 14 days. Thanks for your business!" />
+            </div>
+
+            <div className={`absolute left-7 bottom-5 text-xs text-slate-500 flex items-center gap-1.5 transition-opacity ${autosaveShow ? "opacity-100" : "opacity-0"}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-800 flex-none" />
+              <span>{autosaveText}</span>
+            </div>
+          </div>
+
+          {/* ---------------- PREVIEW PANE ---------------- */}
+          <div className={`px-4 md:px-10 pb-16 pt-6 ${mobileMode === "edit" ? "hidden md:block" : ""}`}>
+            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-2 mb-4.5 max-w-[760px] mx-auto">
+              <span className="text-xs text-slate-500">
+                {missing.length > 0 && <>Still needed: <strong className="text-rose-700 font-medium">{missing.join(", ")}</strong></>}
+              </span>
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                {isPro && (
+                  <>
+                    <button
+                      onClick={() => shareInvoice("email")}
+                      disabled={invoiceSharing === "email"}
+                      className="inline-flex items-center gap-1.5 bg-transparent text-slate-700 border border-stone-300 hover:border-emerald-700 disabled:opacity-60 px-3.5 py-2 text-sm rounded-sm cursor-pointer whitespace-nowrap"
+                    >
+                      {invoiceSharing === "email" ? "Sharing…" : "Share via Email"}
+                    </button>
+                    <button
+                      onClick={() => shareInvoice("whatsapp")}
+                      disabled={invoiceSharing === "whatsapp"}
+                      className="inline-flex items-center gap-1.5 bg-transparent text-slate-700 border border-stone-300 hover:border-emerald-700 disabled:opacity-60 px-3.5 py-2 text-sm rounded-sm cursor-pointer whitespace-nowrap"
+                    >
+                      {invoiceSharing === "whatsapp" ? "Sharing…" : "Share via WhatsApp"}
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={handleDownloadClick}
+                  disabled={downloading}
+                  className="hidden md:inline-flex items-center gap-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-70 text-white border-none px-5 py-2.5 text-sm font-medium rounded-sm cursor-pointer whitespace-nowrap"
+                >
+                  {downloading && <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                  Download PDF
+                </button>
+              </div>
+            </div>
+
+            <div className="max-w-[760px] mx-auto bg-white shadow-lg px-6 py-8 md:px-14 md:py-12" id="invoice-sheet">
+              <div className="flex flex-col md:flex-row justify-between items-start gap-3.5 pb-6.5 border-b-2 border-slate-800 mb-6.5">
+                <div className="max-w-[60%]">
+                  {logoDataUrl && <img src={logoDataUrl} alt="" className="max-h-[46px] max-w-[180px] mb-2.5" />}
+                  <div className="font-serif-display text-lg font-semibold">{bizName.trim() || "Your business name"}</div>
+                  <div className="text-xs text-slate-500 whitespace-pre-line mt-1">{bizDetails.trim() || "Address · email · phone"}</div>
+                </div>
+                <div className="text-left md:text-right">
+                  <div className={`font-serif-display text-[22px] font-bold ${accent.head}`}>Invoice</div>
+                  <div className="font-mono-num text-[13px] text-slate-500 mt-1">{invNum.trim() || "INV-0001"}</div>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row justify-between gap-3.5 mb-7.5">
+                <div>
+                  <div className="text-[11.5px] text-slate-500 mb-1">Billed to</div>
+                  <div className="text-[13.5px]">{clientName.trim() || "Client name"}</div>
+                  <div className="text-[12.5px] text-slate-500 mt-0.5">{clientDetails.trim()}</div>
+                </div>
+                <div>
+                  <div className="text-[11.5px] text-slate-500 mb-1">Issued</div>
+                  <div className="font-mono-num text-[13.5px]">{fmtDate(issueDate)}</div>
+                </div>
+                <div>
+                  <div className="text-[11.5px] text-slate-500 mb-1">Due</div>
+                  <div className="font-mono-num text-[13.5px]">{fmtDate(dueDate)}</div>
+                </div>
+              </div>
+
+              <table className="w-full border-collapse mb-5.5">
+                <thead>
+                  <tr>
+                    <th className="text-left text-[11.5px] text-slate-500 font-medium pb-2 border-b border-slate-800">Description</th>
+                    <th className="text-right text-[11.5px] text-slate-500 font-medium pb-2 border-b border-slate-800">Qty</th>
+                    <th className="text-right text-[11.5px] text-slate-500 font-medium pb-2 border-b border-slate-800">Rate</th>
+                    <th className="text-right text-[11.5px] text-slate-500 font-medium pb-2 border-b border-slate-800">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, i) => {
+                    const qty = parseFloat(item.qty) || 0;
+                    const rate = parseFloat(item.rate) || 0;
+                    return (
+                      <tr key={i}>
+                        <td className="py-2 text-[13.5px] border-b border-stone-200 align-top">{item.desc || <span className="text-slate-400">—</span>}</td>
+                        <td className="py-2 text-[13.5px] border-b border-stone-200 align-top text-right font-mono-num">{qty}</td>
+                        <td className="py-2 text-[13.5px] border-b border-stone-200 align-top text-right font-mono-num">{money(rate, currency)}</td>
+                        <td className="py-2 text-[13.5px] border-b border-stone-200 align-top text-right font-mono-num">{money(qty * rate, currency)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div className="ml-auto w-full md:w-[260px] mb-7.5">
+                <div className="flex justify-between text-[13.5px] py-1.5">
+                  <span>Subtotal</span><span className="font-mono-num">{money(subtotal, currency)}</span>
+                </div>
+                {parseFloat(taxRate) > 0 && (
+                  <div className="flex justify-between text-[13.5px] py-1.5">
+                    <span>Tax ({taxRate}%)</span><span className="font-mono-num">{money(taxAmt, currency)}</span>
+                  </div>
+                )}
+                <div className={`flex justify-between border-t-2 border-slate-800 mt-1 pt-2.5 font-semibold text-base ${accent.head}`}>
+                  <span>Total due</span><span className="font-mono-num">{money(total, currency)}</span>
+                </div>
+              </div>
+
+              {notes.trim() && (
+                <div className="border-t border-stone-200 pt-4.5">
+                  <div className="text-[11.5px] text-slate-500 mb-1.5">Notes</div>
+                  <div className="text-[13px] text-slate-500 whitespace-pre-line">{notes}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* mobile floating download */}
+      <button
+        onClick={handleDownloadClick}
+        disabled={downloading}
+        className="md:hidden fixed right-4 bottom-4 z-[70] inline-flex items-center gap-2 bg-emerald-800 disabled:opacity-70 text-white border-none px-5 py-3.5 text-sm font-medium rounded-full cursor-pointer shadow-xl"
+      >
+        {downloading && <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+        Download PDF
+      </button>
+
+      {/* toast */}
+      <div className={`fixed left-1/2 -translate-x-1/2 bottom-7 bg-slate-800 text-white px-4.5 py-2.5 rounded-sm text-sm transition-all z-[200] ${toast.show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3 pointer-events-none"}`}>
+        {toast.text}
+      </div>
+
+      {/* ================= GUIDE 1 ================= */}
+      <section id="guide-invoicing" className="border-t border-stone-300" style={{ scrollMarginTop: 64 }}>
+        <article className="max-w-[700px] mx-auto px-7 py-14">
+          <div className="text-sm text-slate-500 mb-2.5">Guides / Freelancing</div>
+          <h2 className="font-serif-display text-[28px] font-semibold leading-tight mb-5">How to Invoice as a Freelancer</h2>
+          <p className="mb-4">Most late payments aren't clients being difficult — they're invoices that were unclear, sent late, or easy to lose in an inbox. Fixing your invoicing process fixes a surprising amount of your cash flow problem before it starts.</p>
+
+          <h3 className="text-lg mt-8 mb-3">Invoice before the client forgets what you did</h3>
+          <p className="mb-4">Send the invoice within a day or two of finishing the work, while it's still fresh and clearly tied to a deliverable the client just received. Waiting a few weeks makes the invoice feel disconnected from the work, and disconnected invoices get questioned or deprioritized.</p>
+
+          <h3 className="text-lg mt-8 mb-3">Put the due date in the client's terms, not just yours</h3>
+          <p className="mb-4">"Net 30" means something to an accounts payable department; "please pay soon" doesn't. Give a specific due date and, if you accept late fees, state the rate up front rather than adding it as a surprise later.</p>
+
+          <h3 className="text-lg mt-8 mb-3">Make the invoice number and total impossible to miss</h3>
+          <p className="mb-4">Whoever processes payment on the client's end is often not the person you worked with. Put your invoice number, total due, and due date somewhere they'll see in the first five seconds.</p>
+
+          <div className="bg-white border-l-[3px] border-emerald-800 px-5 py-4 my-6.5 text-[14.5px]">
+            Want to skip straight to a clean invoice? <a href="#tool" className="font-medium text-emerald-800">Use the free invoice generator above</a> — fill in your details and download a PDF in under a minute.
+          </div>
+
+          <h3 className="text-lg mt-8 mb-3">Say exactly how you want to be paid</h3>
+          <p className="mb-4">List your accepted payment methods directly on the invoice rather than making the client ask. Every extra step between "I want to pay you" and actually paying is a chance for the invoice to sit untouched.</p>
+
+          <h3 className="text-lg mt-8 mb-3">Follow up before the due date, not after</h3>
+          <p className="mb-4">A short reminder two or three days before the due date reads as organized, not pushy.</p>
+
+          <h3 className="text-lg mt-8 mb-3">Keep a simple system, even if it's not fancy software</h3>
+          <p className="mb-4">For your first several clients, a consistent invoice template and a spreadsheet tracking what's owed and paid is enough. Once you're issuing more than a handful of invoices a month, dedicated software starts to earn its cost.</p>
+
+          <p className="mb-4">The common thread: an invoice that's clear, specific, and sent promptly gets paid faster than one that's polite but vague.</p>
+          <div className="text-xs text-slate-500 border-t border-stone-200 pt-3.5 mt-8">Some links on this page may be affiliate links, meaning we may earn a commission if you sign up through them, at no extra cost to you.</div>
+        </article>
+      </section>
+
+      {/* ================= GUIDE 2 ================= */}
+      <section id="guide-checklist" className="border-t border-stone-300" style={{ scrollMarginTop: 64 }}>
+        <article className="max-w-[700px] mx-auto px-7 py-14">
+          <div className="text-sm text-slate-500 mb-2.5">Guides / Invoicing basics</div>
+          <h2 className="font-serif-display text-[28px] font-semibold leading-tight mb-5">What to Include on an Invoice (Checklist)</h2>
+          <p className="mb-4">An invoice only does its job if the person paying it can process it without emailing you a question first.</p>
+
+          <ul className="mt-5 mb-7.5">
+            {[
+              ["Invoice number", "A unique reference so both sides can track it — sequential (INV-0001, INV-0002) is simplest."],
+              ["Issue date and due date", 'A specific due date, not just "Net 30" with no anchor date.'],
+              ["Your business details", "Name, address, email, and phone — enough for the client's records."],
+              ["Client's details", "Who's being billed, and the entity name if they're a registered business."],
+              ["Itemized line items", 'Each service or product, quantity, rate, and line total — not just one lump sum.'],
+              ["Subtotal, tax, and total", "Shown as separate lines so the math is checkable at a glance."],
+              ["Payment methods", "Bank details, PayPal, or a payment link — stated directly."],
+              ["Payment terms or late fee policy", "If you charge a late fee, say so on the invoice itself."],
+            ].map(([title, desc]) => (
+              <li key={title} className="py-2.5 border-b border-stone-200 pl-7 relative">
+                <span className="absolute left-0 top-3.5 w-3.5 h-3.5 border-[1.5px] border-emerald-800 rounded-sm" />
+                <strong className="block text-[15px] mb-0.5">{title}</strong>
+                <span className="text-slate-500 text-[13.5px]">{desc}</span>
+              </li>
+            ))}
+          </ul>
+
+          <h3 className="text-lg mt-8 mb-3">Optional, but worth adding</h3>
+          <p className="mb-4">A short thank-you note or one-line reminder of the project name can make an invoice feel less like a form letter. If you're VAT-registered, include your tax ID — some finance departments won't process payment without it.</p>
+
+          <div className="bg-white border-l-[3px] border-emerald-800 px-5 py-4 my-6.5 text-[14.5px]">
+            All of these fields are already built into the <a href="#tool" className="font-medium text-emerald-800">free invoice generator above</a> — fill in the form and they're laid out for you automatically.
+          </div>
+
+          <h3 className="text-lg mt-8 mb-3">What to leave off</h3>
+          <p className="mb-4">Skip anything that isn't directly about the transaction. If two projects have different timelines or approval chains, separate invoices get paid faster than one invoice waiting on two approvals.</p>
+          <div className="text-xs text-slate-500 border-t border-stone-200 pt-3.5 mt-8">Some links on this page may be affiliate links, meaning we may earn a commission if you sign up through them, at no extra cost to you.</div>
+        </article>
+      </section>
+
+      {/* ================= PRIVACY ================= */}
+      <section id="privacy" className="border-t border-stone-300" style={{ scrollMarginTop: 64 }}>
+        <div className="max-w-[700px] mx-auto px-7 py-14">
+          <h2 className="font-serif-display text-[26px] font-semibold mb-1.5">Privacy Policy</h2>
+          <div className="text-sm text-slate-500 mb-7.5">Last updated: [add date when you publish]</div>
+          <p className="mb-3.5">ledgernote provides a free, browser-based invoice generator, with an optional paid Pro tier that saves invoices to your account. This policy explains what happens to your information when you use it.</p>
+          <h3 className="text-base mt-7 mb-2.5">The free invoice tool</h3>
+          <p className="mb-3.5">Used without an account, the invoice generator runs entirely in your browser. Your entries are kept in your browser's local storage on this device only — clearing your browser data or tapping "Start new invoice" removes it.</p>
+          <h3 className="text-base mt-7 mb-2.5">Pro accounts</h3>
+          <p className="mb-3.5">If you create an account, your business profile, saved clients, and invoice history are stored with our database provider (Supabase) so they're available across devices. Payment for Pro is processed by Paystack — we don't see or store your card details.</p>
+          <h3 className="text-base mt-7 mb-2.5">Analytics</h3>
+          <p className="mb-3.5">We may use a privacy-conscious analytics tool to understand how many people visit the site and which pages are useful.</p>
+          <h3 className="text-base mt-7 mb-2.5">Advertising</h3>
+          <p className="mb-3.5">This site may show ads served by Google AdSense or a similar network, including a short ad shown before a free-tier PDF download starts. Pro accounts don't see this ad. You can control ad personalization through <a href="https://adssettings.google.com" target="_blank" rel="noopener noreferrer" className="text-emerald-800">Google's Ads Settings</a>.</p>
+          <h3 className="text-base mt-7 mb-2.5">Contact</h3>
+          <p className="mb-3.5">Questions about this policy can be sent to [add your contact email].</p>
+        </div>
+      </section>
+
+      {/* ================= TERMS ================= */}
+      <section id="terms" className="border-t border-stone-300" style={{ scrollMarginTop: 64 }}>
+        <div className="max-w-[700px] mx-auto px-7 py-14">
+          <h2 className="font-serif-display text-[26px] font-semibold mb-1.5">Terms of Use</h2>
+          <div className="text-sm text-slate-500 mb-7.5">Last updated: [add date when you publish]</div>
+          <p className="mb-3.5">By using ledgernote, you agree to the following terms.</p>
+          <h3 className="text-base mt-7 mb-2.5">What this tool is</h3>
+          <p className="mb-3.5">ledgernote formats, saves, and downloads invoices as PDFs. The free tier runs entirely in your browser. The optional Pro tier stores your data in your account and is billed via Paystack.</p>
+          <h3 className="text-base mt-7 mb-2.5">Your responsibility</h3>
+          <ul className="list-disc pl-5 mb-3.5">
+            <li className="mb-1.5">You're responsible for the accuracy of the information you put into your invoices.</li>
+            <li className="mb-1.5">This tool doesn't provide legal, tax, or accounting advice.</li>
+            <li className="mb-1.5">You should not use this tool to create misleading, fraudulent, or fake invoices.</li>
+          </ul>
+          <h3 className="text-base mt-7 mb-2.5">Billing</h3>
+          <p className="mb-3.5">Pro is billed monthly or as a one-time lifetime purchase, processed by Paystack. Monthly subscriptions renew automatically until canceled.</p>
+          <h3 className="text-base mt-7 mb-2.5">No warranty</h3>
+          <p className="mb-3.5">This tool is provided "as is," without any warranty of accuracy, uptime, or fitness for a particular purpose.</p>
+          <h3 className="text-base mt-7 mb-2.5">Contact</h3>
+          <p className="mb-3.5">Questions can be sent to [add your contact email].</p>
+        </div>
+      </section>
+
+      {/* ================= FAQ ================= */}
+      <section id="faq" className="border-t border-stone-300" style={{ scrollMarginTop: 64 }}>
+        <div className="max-w-[700px] mx-auto px-7 py-14">
+          <div className="text-sm text-slate-500 mb-2.5">Frequently asked</div>
+          <h2 className="font-serif-display text-2xl font-semibold mb-2">Invoice generator FAQ</h2>
+          <div className="mt-2">
+            {[
+              ["Is this invoice generator really free?", "The core tool is free forever, with no sign-up required. An optional Pro plan adds saved clients, invoice history, and status tracking."],
+              ["Where is my invoice data stored?", "Without an account, everything runs in your browser and stays in local storage on your device. With a Pro account, your data is stored securely with our database provider."],
+              ["Can I add my own logo and brand colors?", "Yes. You can upload a logo and choose from several accent colors to match your brand before downloading the PDF."],
+              ["What file format do I get?", "A ready-to-send PDF, generated directly in your browser when you click Download."],
+              ["Does it support different currencies and tax rates?", "Yes. You can pick from several major currencies and add a custom tax rate that's calculated automatically."],
+              ["Can I send a receipt once I've been paid?", "Pro accounts can generate a receipt from an invoice's details and share it by email or WhatsApp, or download it as a PDF. On the receipt, individual line amounts are shown as plain figures, with the currency symbol shown once, on the total."],
+              ["Can I share an invoice directly, not just download it?", "Yes — Pro accounts get Share via Email and Share via WhatsApp buttons next to the download button. On supported phones and browsers the PDF attaches automatically; otherwise it downloads and opens the app so you can attach it."],
+              ["Why do I see an ad before my PDF downloads?", "Free downloads are supported by a short ad, which is what keeps the core tool free with no sign-up. Pro accounts skip this step and download immediately."],
+            ].map(([q, a]) => (
+              <div key={q} className="py-4.5 border-b border-stone-200 last:border-b-0">
+                <h3 className="text-[15.5px] mb-1.5">{q}</h3>
+                <p className="text-slate-500 text-sm">{a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <footer className="max-w-[1280px] mx-auto px-7 py-9 pb-12 text-xs text-slate-500 flex justify-between border-t border-stone-300">
+        <span>© {new Date().getFullYear()} ledgernote</span>
+        <span><a href="#privacy" className="text-slate-500 ml-3.5">Privacy</a><a href="#terms" className="text-slate-500 ml-3.5">Terms</a></span>
+      </footer>
+    </div>
+  );
+}
